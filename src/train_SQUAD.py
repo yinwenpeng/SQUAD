@@ -17,7 +17,7 @@ from WPDefined import ConvFoldPoolLayer, dropout_from_layer, shared_dataset, rep
 from cis.deep.utils.theano import debug_print
 from theano.tensor.signal import downsample
 from theano.tensor.nnet import conv
-from load_SQUAD import load_train
+from load_SQUAD import load_train, load_dev_or_test, extract_ansList_attentionList
 from word2embeddings.nn.util import zero_value, random_value_normal
 from common_functions import Bi_GRU_Matrix_Input, Bd_GRU_Batch_Tensor_Input_with_Mask, create_ensemble_para, create_GRU_para, GRU_Tensor3_Input, GRU_Matrix_Input, Matrix_Bit_Shift, GRU_Batch_Tensor_Input
 from random import shuffle
@@ -65,7 +65,8 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1, emb_size=10,
     print "model options", model_options
     rootPath='/mounts/data/proj/wenpeng/Dataset/SQuAD/';
     rng = numpy.random.RandomState(23455)
-    para_list, Q_list, label_list, mask, Q_size_list, vocab_size=load_train()
+    para_list, Q_list, label_list, mask, Q_size_list, train_vocab_size, word2id=load_train()
+    test_para_list, test_Q_list, test_mask, test_Q_size_list, overall_vocab_size, overall_word2id, test_text_list, q_ansSet_list= load_dev_or_test(word2id)
 
 
 
@@ -73,7 +74,7 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1, emb_size=10,
     
 
 
-    rand_values=random_value_normal((vocab_size+1, emb_size), theano.config.floatX, numpy.random.RandomState(1234))
+    rand_values=random_value_normal((overall_vocab_size+1, emb_size), theano.config.floatX, numpy.random.RandomState(1234))
 #     rand_values[0]=numpy.array(numpy.zeros(emb_size),dtype=theano.config.floatX)
     embeddings=theano.shared(value=rand_values, borrow=True)      
 
@@ -155,6 +156,8 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1, emb_size=10,
 
 
     train_model = theano.function([paragraph, questions,labels, submask], cost, updates=updates,on_unused_input='ignore')
+    
+    test_model = theano.function([paragraph, questions,submask], distributions, on_unused_input='ignore')
 
 
 
@@ -180,6 +183,9 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1, emb_size=10,
 
     #para_list, Q_list, label_list, mask, vocab_size=load_train()
     n_train_batches=len(para_list)
+    n_test_batches=len(test_para_list)
+    
+    
     while (epoch < n_epochs) and (not done_looping):
         epoch = epoch + 1
         #for minibatch_index in xrange(n_train_batches): # each batch
@@ -200,7 +206,33 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1, emb_size=10,
                 print 'training @ iter = '+str(iter)+' cost: '+str(cost_i)
                 print 'Paragraph ', para_id, 'uses ', (time.clock()-past_time)/60.0, 'min'
                 past_time = time.clock()
- 
+                
+                exact_match=0
+                q_amount=0
+                for test_para_id in range(n_test_batches):
+                    distribution_matrix=test_model(
+                                        np.asarray(test_para_list[test_para_id], dtype='int32'), 
+                                              np.asarray(test_Q_list[test_para_id], dtype='int32'), 
+                                              np.asarray(test_mask[test_para_id], dtype=theano.config.floatX))
+                    
+                    test_para_word_list=test_text_list[test_para_id]
+                    para_gold_ans_list=q_ansSet_list[test_para_id]
+                    para_len=len(test_para_word_list)
+                    if para_len!=len(distribution_matrix[0]):
+                        print 'para_len!=len(distribution_matrix[0]):', para_len, len(distribution_matrix[0])
+                        exit(0)
+                    q_size=len(distribution_matrix)
+                    q_amount+=q_size
+                    for q in range(q_size): #for each question
+                        pred_ans_set=extract_ansList_attentionList(test_para_word_list, distribution_matrix[q])
+                        q_gold_ans_set=para_gold_ans_list[q]
+                        if len(pred_ans_set & q_gold_ans_set)>0:
+                            exact_match+=1
+                exact_acc=exact_match*1.0/q_amount
+                print 'exact acc:', exact_acc
+                        
+
+
 
             if patience <= iter:
                 done_looping = True
