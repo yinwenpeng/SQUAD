@@ -200,6 +200,7 @@ def fine_grained_subStr(text):
     
 
 def extract_ansList_attentionList(word_list, att_list):
+    average_att=reduce(lambda x, y: x + y, att_list) / len(att_list)
     if len(word_list)!=len(att_list):
         print 'len(word_list)!=len(att_list):', len(word_list), len(att_list)
         exit(0)
@@ -207,7 +208,7 @@ def extract_ansList_attentionList(word_list, att_list):
     pred_ans_list=[]
     new_answer=''
     for pos in range(para_len):
-        if att_list[pos]>0.0:
+        if att_list[pos]>average_att:
             new_answer+=' '+word_list[pos]
             new_answer=new_answer.strip()
             if pos == para_len-1 and len(new_answer)>0:

@@ -122,7 +122,10 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1, emb_size=10,
      
     attention_paras=[W_a1, W_a2, U_a]
     def AttentionLayer(q_rep):
-        strength = debug_print(T.tanh(T.dot(T.nnet.sigmoid(T.dot(q_rep, W_a1).reshape((1, hidden_size)) + T.dot(paragraph_model.output_matrix.transpose(), W_a2)), U_a)), 'strength') #(#word, 1)
+        theano_U_a=debug_print(U_a+0.01, 'U_a')
+        prior_att=debug_print(T.nnet.sigmoid(T.dot(q_rep, W_a1).reshape((1, hidden_size)) + T.dot(paragraph_model.output_matrix.transpose(), W_a2)), 'prior_att')
+                              
+        strength = debug_print(T.tanh(T.dot(prior_att, theano_U_a)), 'strength') #(#word, 1)
         return strength.transpose() #(1, #words)
  
     distributions, updates = theano.scan(
@@ -224,6 +227,7 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1, emb_size=10,
                     q_size=len(distribution_matrix)
                     q_amount+=q_size
                     for q in range(q_size): #for each question
+#                         print 'distribution_matrix[q]:', distribution_matrix[q]
                         pred_ans_set=extract_ansList_attentionList(test_para_word_list, distribution_matrix[q])
                         q_gold_ans_set=para_gold_ans_list[q]
                         if len(pred_ans_set & q_gold_ans_set)>0:

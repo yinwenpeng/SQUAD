@@ -366,9 +366,9 @@ class GRU_Batch_Tensor_Input_with_Mask(object):
             outputs_info=dict(initial=T.zeros((self.hidden_dim, X.shape[0]))))
         
 #         self.output_matrix=debug_print(s.transpose(), 'GRU_Matrix_Input.output_matrix')
-        self.output_tensor=s.dimshuffle(2,1,0)
+        self.output_tensor=s.dimshuffle(2,1,0)  #(batch, emb_size, sentlength) again
 
-        self.output_sent_rep=self.output_tensor[0,:,-1]
+        self.output_sent_rep=self.output_tensor[:,:,-1]
 
 
 class GRU_Batch_Tensor_Input(object):
