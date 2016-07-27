@@ -6,6 +6,9 @@ from theano.tensor.nnet import conv
 from cis.deep.utils.theano import debug_print
 from WPDefined import repeat_whole_matrix, repeat_whole_tensor
 
+import numpy as np
+from scipy.spatial.distance import cosine
+
 def create_AttentionMatrix_para(rng, n_in, n_out):
 
     W1_values = numpy.asarray(rng.uniform(
@@ -1401,9 +1404,21 @@ def Determinant(W):
     loss=-T.log(theano.tensor.nlinalg.Det()(prod))
     return loss
     
+def normalize_matrix(M):
+    norm=T.sqrt(T.sum(T.sqr(M)))
+    return M/norm
     
+def L2norm_paraList(paralist):
+    summ=0.0
     
+    for para in paralist:
+        summ+=(para** 2).sum()  
+    return summ  
     
-    
+def cosine_simi(x, y):
+    #this is better
+    a = np.array(x)
+    b = np.array(y)
+    c = 1-cosine(a,b)
+    return c
 
-    

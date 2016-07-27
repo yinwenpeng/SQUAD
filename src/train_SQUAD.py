@@ -19,7 +19,7 @@ from theano.tensor.signal import downsample
 from theano.tensor.nnet import conv
 from load_SQUAD import load_train, load_dev_or_test, extract_ansList_attentionList
 from word2embeddings.nn.util import zero_value, random_value_normal
-from common_functions import Bi_GRU_Matrix_Input, Bd_GRU_Batch_Tensor_Input_with_Mask, create_ensemble_para, create_GRU_para, GRU_Tensor3_Input, GRU_Matrix_Input, Matrix_Bit_Shift, GRU_Batch_Tensor_Input
+from common_functions import Bi_GRU_Matrix_Input, Bd_GRU_Batch_Tensor_Input_with_Mask, create_ensemble_para, create_GRU_para, normalize_matrix, L2norm_paraList, Matrix_Bit_Shift, GRU_Batch_Tensor_Input
 from random import shuffle
 from gru import BdGRU, GRULayer
 from utils_pg import *
@@ -58,8 +58,8 @@ Doesnt work:
 
 '''
 
-def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1, emb_size=10, hidden_size=5,
-                    margin=0.5, L2_weight=0.000654):
+def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1, emb_size=100, hidden_size=50,
+                    margin=0.5, L2_weight=0.001):
 
     model_options = locals().copy()
     print "model options", model_options
@@ -119,11 +119,15 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1, emb_size=10,
     W_a1 = create_ensemble_para(rng, hidden_size, 2*hidden_size)# init_weights((2*hidden_size, hidden_size))
     W_a2 = create_ensemble_para(rng, hidden_size, 2*hidden_size)
     U_a = create_ensemble_para(rng, 1, hidden_size)
+    
+    norm_W_a1=normalize_matrix(W_a1)
+    norm_W_a2=normalize_matrix(W_a2)
+    norm_U_a=normalize_matrix(U_a)
      
     attention_paras=[W_a1, W_a2, U_a]
     def AttentionLayer(q_rep):
-        theano_U_a=debug_print(U_a+0.01, 'U_a')
-        prior_att=debug_print(T.nnet.sigmoid(T.dot(q_rep, W_a1).reshape((1, hidden_size)) + T.dot(paragraph_model.output_matrix.transpose(), W_a2)), 'prior_att')
+        theano_U_a=debug_print(norm_U_a, 'norm_U_a')
+        prior_att=debug_print(T.nnet.sigmoid(T.dot(q_rep, norm_W_a1).reshape((1, hidden_size)) + T.dot(paragraph_model.output_matrix.transpose(), norm_W_a2)), 'prior_att')
                               
         strength = debug_print(T.tanh(T.dot(prior_att, theano_U_a)), 'strength') #(#word, 1)
         return strength.transpose() #(1, #words)
@@ -133,13 +137,15 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1, emb_size=10,
     sequences=questions_reps)
     distributions=debug_print(distributions.reshape((questions.shape[0],paragraph.shape[0])), 'distributions')
     labels=debug_print(labels, 'labels')
-    cost=((distributions-labels)**2).mean()
+    error=((distributions-labels)**2).mean()
     
 
 
     #params = layer3.params + layer2.params + layer1.params+ [conv_W, conv_b]
     params = [embeddings]+paragraph_para+Q_para+attention_paras
-
+    L2_reg =L2norm_paraList(params)
+    cost=error+L2_weight*L2_reg
+    
     
     accumulator=[]
     for para_i in params:
@@ -188,7 +194,7 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1, emb_size=10,
     n_train_batches=len(para_list)
     n_test_batches=len(test_para_list)
     
-    
+    max_exact_acc=0.0
     while (epoch < n_epochs) and (not done_looping):
         epoch = epoch + 1
         #for minibatch_index in xrange(n_train_batches): # each batch
@@ -208,6 +214,7 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1, emb_size=10,
             if iter%500==0:
                 print 'training @ iter = '+str(iter)+' cost: '+str(cost_i)
                 print 'Paragraph ', para_id, 'uses ', (time.clock()-past_time)/60.0, 'min'
+                print 'Testing...'
                 past_time = time.clock()
                 
                 exact_match=0
@@ -233,7 +240,9 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1, emb_size=10,
                         if len(pred_ans_set & q_gold_ans_set)>0:
                             exact_match+=1
                 exact_acc=exact_match*1.0/q_amount
-                print 'exact acc:', exact_acc
+                if exact_acc> max_exact_acc:
+                    max_exact_acc=exact_acc
+                print 'exact acc:', exact_acc, '\t\tmax exact acc:', max_exact_acc
                         
 
 
