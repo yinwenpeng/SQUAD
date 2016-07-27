@@ -69,15 +69,23 @@ def  load_train():
             
             submask=[]
             Q_sublist_padded=[]
-            for orig_q in Q_sublist:
+#             for orig_q in Q_sublist: # pad zero at end of sentences
+#                 existing_len=len(orig_q)
+#                 pad_len=max_q_len-existing_len
+#                 if pad_len>0:
+#                     orig_q+=[0]*pad_len
+#                 Q_sublist_padded.append(orig_q)
+#                 submask.append([1.0]*existing_len+[0.0]*pad_len)
+                
+            for orig_q in Q_sublist: # pad zero at mid of sentences
                 existing_len=len(orig_q)
                 pad_len=max_q_len-existing_len
                 if pad_len>0:
-                    orig_q+=[0]*pad_len
+                    mid_place=existing_len/2
+                    orig_q=orig_q[:mid_place]+[0]*pad_len+orig_q[mid_place:]
                 Q_sublist_padded.append(orig_q)
-                submask.append([1.0]*existing_len+[0.0]*pad_len)
-                
-                
+                submask.append([1.0]*mid_place+[0.0]*pad_len+[1.0]*(existing_len-mid_place))          
+                      
             para_list.append(paragraph_idlist)
             Q_list.append(Q_sublist_padded)
             label_list.append(label_sublist)
@@ -156,14 +164,22 @@ def  load_dev_or_test(word2id):
             
             submask=[]
             Q_sublist_padded=[]
-            for orig_q in Q_sublist:
+#             for orig_q in Q_sublist:
+#                 existing_len=len(orig_q)
+#                 pad_len=max_q_len-existing_len
+#                 if pad_len>0:
+#                     orig_q+=[0]*pad_len
+#                 Q_sublist_padded.append(orig_q)
+#                 submask.append([1.0]*existing_len+[0.0]*pad_len)
+
+            for orig_q in Q_sublist: # pad zero at mid of sentences
                 existing_len=len(orig_q)
                 pad_len=max_q_len-existing_len
                 if pad_len>0:
-                    orig_q+=[0]*pad_len
+                    mid_place=existing_len/2
+                    orig_q=orig_q[:mid_place]+[0]*pad_len+orig_q[mid_place:]
                 Q_sublist_padded.append(orig_q)
-                submask.append([1.0]*existing_len+[0.0]*pad_len)
-                
+                submask.append([1.0]*mid_place+[0.0]*pad_len+[1.0]*(existing_len-mid_place))                     
                 
             para_list.append(paragraph_idlist)
             Q_list.append(Q_sublist_padded)
