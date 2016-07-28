@@ -340,6 +340,7 @@ class Bd_GRU_Batch_Tensor_Input_with_Mask(object):
         self.output_tensor=T.concatenate([fwd.output_tensor, bwd.output_tensor[:,:,::-1]], axis=1)
 
         self.output_sent_rep=self.output_tensor[:,:,-1]
+        self.output_sent_rep_maxpooling=T.max(self.output_tensor, axis=2)
 
 class GRU_Batch_Tensor_Input_with_Mask(object):
     def __init__(self, X, Mask, hidden_dim, U, W, b, bptt_truncate):

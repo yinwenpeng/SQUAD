@@ -34,27 +34,9 @@ from scipy import linalg, mat, dot
 
 
 
-#need to change
+#need to try
 '''
-1) rouge score
-2) TF-KLD
-
-4) paragraph vector
-
-6) tokenized sentences : better
-7) only use non-overlap pairs: comparable
-
-9) length of nonoverlap : better
-
-
-
-
-Doesnt work:
-3) train+trial
-10) no not use mt metrics
-5) update word embeddings
-8) nonoverlap emb used average
-10) delete original sentence lengths
+1) add word embeddings as sentence emb, combined with result of LSTM
 
 '''
 
@@ -113,7 +95,7 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1, emb_size=100
     UQ_b, WQ_b, bQ_b=create_GRU_para(rng, emb_size, hidden_size)
     Q_para=[UQ, WQ, bQ, UQ_b, WQ_b, bQ_b] 
     questions_model=Bd_GRU_Batch_Tensor_Input_with_Mask(X=Qs_emb, Mask=submask, hidden_dim=hidden_size, U=UQ,W=WQ,b=bQ, Ub=UQ_b, Wb=WQ_b, bb=bQ_b, bptt_truncate=-1)
-    questions_reps=questions_model.output_sent_rep #(batch, 2*out_size)
+    questions_reps=questions_model.output_sent_rep_maxpooling #(batch, 2*out_size)
     
     #attention distributions
     W_a1 = create_ensemble_para(rng, hidden_size, 2*hidden_size)# init_weights((2*hidden_size, hidden_size))
