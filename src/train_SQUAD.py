@@ -119,7 +119,12 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1, emb_size=100
     sequences=questions_reps)
     distributions=debug_print(distributions.reshape((questions.shape[0],paragraph.shape[0])), 'distributions')
     labels=debug_print(labels, 'labels')
-    error=((distributions-labels)**2).mean()
+    label_mask=T.gt(labels,0)
+    dis_masked=distributions*label_mask
+    remain_dis_masked=distributions*(1.0-label_mask)
+    pos_error=((dis_masked-1)**2).mean()
+    neg_error=((remain_dis_masked-(-1))**2).mean()
+    error=pos_error+neg_error
     
 
 
@@ -146,7 +151,7 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1, emb_size=100
 
 
 
-    train_model = theano.function([paragraph, questions,labels, submask], cost, updates=updates,on_unused_input='ignore')
+    train_model = theano.function([paragraph, questions,labels, submask], error, updates=updates,on_unused_input='ignore')
     
     test_model = theano.function([paragraph, questions,submask], distributions, on_unused_input='ignore')
 
@@ -177,6 +182,7 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1, emb_size=100
     n_test_batches=len(test_para_list)
     
     max_exact_acc=0.0
+    cost_i=0.0
     while (epoch < n_epochs) and (not done_looping):
         epoch = epoch + 1
         #for minibatch_index in xrange(n_train_batches): # each batch
@@ -186,7 +192,7 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1, emb_size=100
             # iter means how many batches have been runed, taking into loop
             iter = (epoch - 1) * n_train_batches + para_id +1
 
-            cost_i= train_model(
+            cost_i+= train_model(
                                 np.asarray(para_list[para_id], dtype='int32'), 
                                       np.asarray(Q_list[para_id], dtype='int32'), 
                                       np.asarray(label_list[para_id], dtype=theano.config.floatX), 
@@ -194,7 +200,7 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1, emb_size=100
 
             
             if iter%500==0:
-                print 'training @ iter = '+str(iter)+' cost: '+str(cost_i)
+                print 'training @ iter = '+str(iter)+' average cost: '+str(cost_i/iter)
                 print 'Paragraph ', para_id, 'uses ', (time.clock()-past_time)/60.0, 'min'
                 print 'Testing...'
                 past_time = time.clock()
@@ -219,9 +225,10 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1, emb_size=100
 #                         print 'distribution_matrix[q]:', distribution_matrix[q]
                         pred_ans_set=extract_ansList_attentionList(test_para_word_list, distribution_matrix[q])
                         q_gold_ans_set=para_gold_ans_list[q]
-                        if len(pred_ans_set & q_gold_ans_set)>0:
-                            exact_match+=1
-                exact_acc=exact_match*1.0/q_amount
+                        match_amount=len(pred_ans_set & q_gold_ans_set)
+                        if match_amount>0:
+                            exact_match+=match_amount*1.0/len(pred_ans_set)
+                exact_acc=exact_match/q_amount
                 if exact_acc> max_exact_acc:
                     max_exact_acc=exact_acc
                 print 'exact acc:', exact_acc, '\t\tmax exact acc:', max_exact_acc

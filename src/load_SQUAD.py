@@ -216,7 +216,7 @@ def fine_grained_subStr(text):
     
 
 def extract_ansList_attentionList(word_list, att_list):
-    average_att=reduce(lambda x, y: x + y, att_list) / len(att_list)
+    average_att=0.0#reduce(lambda x, y: x + y, att_list) / len(att_list)
     if len(word_list)!=len(att_list):
         print 'len(word_list)!=len(att_list):', len(word_list), len(att_list)
         exit(0)
@@ -237,12 +237,11 @@ def extract_ansList_attentionList(word_list, att_list):
                 continue
     
 #     print 'pred_ans_list:', pred_ans_list
-    fine_grained_ans_set=set()
-    for pred_ans in pred_ans_list:
-        fine_grained_ans_set|=fine_grained_subStr(pred_ans.split())
-        
-#     print 'fine_grained_ans_set:', fine_grained_ans_set
-    return fine_grained_ans_set
+#     fine_grained_ans_set=set()
+#     for pred_ans in pred_ans_list:
+#         fine_grained_ans_set|=fine_grained_subStr(pred_ans.split())
+#     return fine_grained_ans_set
+    return set(pred_ans_list)
     
     
 
