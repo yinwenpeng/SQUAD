@@ -242,7 +242,11 @@ class Bi_GRU_Matrix_Input(object):
             truncate_gradient=self.bptt_truncate,
             outputs_info=dict(initial=T.zeros(self.hidden_dim)))
         #dim: hidden_dim*2        
-        self.output_matrix=T.concatenate([s.transpose(), s_b.transpose()[:,::-1]], axis=0)
+        output_matrix=T.concatenate([s.transpose(), s_b.transpose()[:,::-1]], axis=0)
+        
+        self.output_matrix=output_matrix+X # add input feature maps
+        
+        
         self.output_vector_mean=T.mean(self.output_matrix, axis=1)
         self.output_vector_max=T.max(self.output_matrix, axis=1)
         #dim: hidden_dim*4
@@ -337,7 +341,8 @@ class Bd_GRU_Batch_Tensor_Input_with_Mask(object):
         fwd = GRU_Batch_Tensor_Input_with_Mask(X, Mask, hidden_dim, U, W, b, bptt_truncate)
         bwd = GRU_Batch_Tensor_Input_with_Mask(X[:,:,::-1], Mask[:,::-1], hidden_dim, Ub, Wb, bb, bptt_truncate)
 
-        self.output_tensor=T.concatenate([fwd.output_tensor, bwd.output_tensor[:,:,::-1]], axis=1)
+        output_tensor=T.concatenate([fwd.output_tensor, bwd.output_tensor[:,:,::-1]], axis=1)
+        self.output_tensor=output_tensor+X # add initialized emb
 
         self.output_sent_rep=self.output_tensor[:,:,-1]
         self.output_sent_rep_maxpooling=T.max(self.output_tensor, axis=2)

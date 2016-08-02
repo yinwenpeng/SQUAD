@@ -116,7 +116,7 @@ def  load_dev_or_test(word2id):
     para_text_list=[]
     Q_list=[]
     Q_size_list=[]
-#     label_list=[]
+    label_list=[]
     mask=[]
     q_ansSet_list=[]
     for i in range(doc_size):#each doc
@@ -132,7 +132,7 @@ def  load_dev_or_test(word2id):
             para_len=len(paragraph_wordlist)
             
             Q_sublist=[]
-#             label_sublist=[]
+            label_sublist=[]
             ansSetList=[]
             max_q_len=0
             for q in range(question_size_j): # for each question
@@ -146,21 +146,21 @@ def  load_dev_or_test(word2id):
                 for ans in range(answer_no):
                     answer_q=data['data'][i]['paragraphs'][j]['qas'][q]['answers'][ans]['text']
                     q_ansSet.add(answer_q)
-#                     answer_len=len(answer_q.strip().split())
-#                 
-#                     answer_start_q=data['data'][i]['paragraphs'][j]['qas'][q]['answers'][ans]['answer_start']
-#                     while answer_start_q>0 and paragraph[answer_start_q-1]!=' ':
-#                         answer_start_q-=1
-#                     answer_left=paragraph[:answer_start_q]
-#                     answer_left_size=len(answer_left.strip().split())
-#                     gold_label_q=[-1.0]*answer_left_size+[1.0]*answer_len+[-1.0]*(para_len-answer_left_size-answer_len)
+                    answer_len=len(answer_q.strip().split())
+                 
+                    answer_start_q=data['data'][i]['paragraphs'][j]['qas'][q]['answers'][ans]['answer_start']
+                    while answer_start_q>0 and paragraph[answer_start_q-1]!=' ':
+                        answer_start_q-=1
+                    answer_left=paragraph[:answer_start_q]
+                    answer_left_size=len(answer_left.strip().split())
+                    gold_label_q=[-1.0]*answer_left_size+[1.0]*answer_len+[-1.0]*(para_len-answer_left_size-answer_len)
                 ansSetList.append(q_ansSet)
                 Q_sublist.append(question_idlist)
-#                 if len(label_sublist)>=1 and len(gold_label_q)!=len(label_sublist[-1]):
-#                     print 'wired size'
-#                     print len(gold_label_q),len(label_sublist[-1])
-#                     exit(0)
-#                 label_sublist.append(gold_label_q)
+                if len(label_sublist)>=1 and len(gold_label_q)!=len(label_sublist[-1]):
+                    print 'wired size'
+                    print len(gold_label_q),len(label_sublist[-1])
+                    exit(0)
+                label_sublist.append(gold_label_q)
             
             submask=[]
             Q_sublist_padded=[]
@@ -183,7 +183,7 @@ def  load_dev_or_test(word2id):
                 
             para_list.append(paragraph_idlist)
             Q_list.append(Q_sublist_padded)
-#             label_list.append(label_sublist)
+            label_list.append(label_sublist)
             mask.append(submask)
             q_ansSet_list.append(ansSetList)
                 
@@ -196,7 +196,7 @@ def  load_dev_or_test(word2id):
     print 'Load dev set', para_size, 'paragraphs,', qa_size, 'question-answer pairs'
     print 'Train+Dev Vocab size:', len(word2id)
 #     print word2id
-    return para_list, Q_list, mask, Q_size_list, len(word2id), word2id, para_text_list, q_ansSet_list
+    return para_list, Q_list, label_list, mask, Q_size_list, len(word2id), word2id, para_text_list, q_ansSet_list
 
 def fine_grained_subStr(text):
     #supposed text is a word list

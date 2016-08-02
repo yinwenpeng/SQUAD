@@ -48,7 +48,7 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1, emb_size=100
     rootPath='/mounts/data/proj/wenpeng/Dataset/SQuAD/';
     rng = numpy.random.RandomState(23455)
     para_list, Q_list, label_list, mask, Q_size_list, train_vocab_size, word2id=load_train()
-    test_para_list, test_Q_list, test_mask, test_Q_size_list, overall_vocab_size, overall_word2id, test_text_list, q_ansSet_list= load_dev_or_test(word2id)
+    test_para_list, test_Q_list, test_label_list, test_mask, test_Q_size_list, overall_vocab_size, overall_word2id, test_text_list, q_ansSet_list= load_dev_or_test(word2id)
 
 
 
@@ -119,12 +119,13 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1, emb_size=100
     sequences=questions_reps)
     distributions=debug_print(distributions.reshape((questions.shape[0],paragraph.shape[0])), 'distributions')
     labels=debug_print(labels, 'labels')
-    label_mask=T.gt(labels,0)
+    label_mask=T.gt(labels,0.0)
+    neg_label_mask=T.lt(labels,0.0)
     dis_masked=distributions*label_mask
-    remain_dis_masked=distributions*(1.0-label_mask)
+    remain_dis_masked=distributions*neg_label_mask
     pos_error=((dis_masked-1)**2).mean()
     neg_error=((remain_dis_masked-(-1))**2).mean()
-    error=pos_error+neg_error
+    error=pos_error+(T.sum(label_mask)*1.0/T.sum(neg_label_mask))*neg_error
     
 
 
@@ -191,7 +192,7 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1, emb_size=100
         for para_id in range(n_train_batches): 
             # iter means how many batches have been runed, taking into loop
             iter = (epoch - 1) * n_train_batches + para_id +1
-
+#             para_id=0
             cost_i+= train_model(
                                 np.asarray(para_list[para_id], dtype='int32'), 
                                       np.asarray(Q_list[para_id], dtype='int32'), 
@@ -199,7 +200,7 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1, emb_size=100
                                       np.asarray(mask[para_id], dtype=theano.config.floatX))
 
             
-            if iter%500==0:
+            if iter%10000==0:
                 print 'training @ iter = '+str(iter)+' average cost: '+str(cost_i/iter)
                 print 'Paragraph ', para_id, 'uses ', (time.clock()-past_time)/60.0, 'min'
                 print 'Testing...'
@@ -215,6 +216,7 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1, emb_size=100
                     
                     test_para_word_list=test_text_list[test_para_id]
                     para_gold_ans_list=q_ansSet_list[test_para_id]
+                    test_label_matrix=test_label_list[test_para_id]
                     para_len=len(test_para_word_list)
                     if para_len!=len(distribution_matrix[0]):
                         print 'para_len!=len(distribution_matrix[0]):', para_len, len(distribution_matrix[0])
@@ -222,7 +224,15 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1, emb_size=100
                     q_size=len(distribution_matrix)
                     q_amount+=q_size
                     for q in range(q_size): #for each question
-#                         print 'distribution_matrix[q]:', distribution_matrix[q]
+#                         if len(distribution_matrix[q])!=len(test_label_matrix[q]):
+#                             print 'len(distribution_matrix[q])!=len(test_label_matrix[q]):', len(distribution_matrix[q]), len(test_label_matrix[q])
+#                         else:
+#                             ss=len(distribution_matrix[q])
+#                             combine_list=[]
+#                             for ii in range(ss):
+#                                 combine_list.append(str(distribution_matrix[q][ii])+'('+str(test_label_matrix[q][ii])+')')
+#                             print combine_list
+#                         exit(0)
                         pred_ans_set=extract_ansList_attentionList(test_para_word_list, distribution_matrix[q])
                         q_gold_ans_set=para_gold_ans_list[q]
                         match_amount=len(pred_ans_set & q_gold_ans_set)
