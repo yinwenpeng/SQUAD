@@ -231,7 +231,8 @@ def extract_ansList_attentionList(word_list, att_list):
                 pred_ans_list.append(new_answer)
         else:
             if len(new_answer)>0:
-                pred_ans_list.append(new_answer)
+                if len(new_answer.split())<=4:
+                    pred_ans_list.append(new_answer)
                 new_answer=''
             else:
                 continue

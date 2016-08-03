@@ -24,12 +24,7 @@ from random import shuffle
 from gru import BdGRU, GRULayer
 from utils_pg import *
 
-from sklearn import svm
-from sklearn.multiclass import OneVsRestClassifier
-from sklearn.svm import LinearSVC
-from sklearn.linear_model import LinearRegression
-from sklearn import linear_model
-from scipy import linalg, mat, dot
+
 
 
 
@@ -40,7 +35,7 @@ from scipy import linalg, mat, dot
 
 '''
 
-def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1, emb_size=100, hidden_size=50,
+def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1, emb_size=10, hidden_size=10,
                     margin=0.5, L2_weight=0.001):
 
     model_options = locals().copy()
@@ -98,8 +93,8 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1, emb_size=100
     questions_reps=questions_model.output_sent_rep_maxpooling #(batch, 2*out_size)
     
     #attention distributions
-    W_a1 = create_ensemble_para(rng, hidden_size, 2*hidden_size)# init_weights((2*hidden_size, hidden_size))
-    W_a2 = create_ensemble_para(rng, hidden_size, 2*hidden_size)
+    W_a1 = create_ensemble_para(rng, hidden_size, hidden_size)# init_weights((2*hidden_size, hidden_size))
+    W_a2 = create_ensemble_para(rng, hidden_size, hidden_size)
     U_a = create_ensemble_para(rng, 1, hidden_size)
     
     norm_W_a1=normalize_matrix(W_a1)
@@ -171,7 +166,7 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1, emb_size=100
     best_validation_loss = numpy.inf
     best_iter = 0
     test_score = 0.
-    start_time = time.clock()
+    start_time = time.time()
     mid_time = start_time
     past_time= mid_time
     epoch = 0
@@ -200,11 +195,11 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1, emb_size=100
                                       np.asarray(mask[para_id], dtype=theano.config.floatX))
 
             
-            if iter%10000==0:
+            if iter%500==0:
                 print 'training @ iter = '+str(iter)+' average cost: '+str(cost_i/iter)
-                print 'Paragraph ', para_id, 'uses ', (time.clock()-past_time)/60.0, 'min'
+                print 'Paragraph ', para_id, 'uses ', (time.time()-past_time)/60.0, 'min'
                 print 'Testing...'
-                past_time = time.clock()
+                past_time = time.time()
                 
                 exact_match=0
                 q_amount=0
@@ -250,11 +245,11 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1, emb_size=100
                 done_looping = True
                 break
         
-        print 'Epoch ', epoch, 'uses ', (time.clock()-mid_time)/60.0, 'min'
-        mid_time = time.clock()
+        print 'Epoch ', epoch, 'uses ', (time.time()-mid_time)/60.0, 'min'
+        mid_time = time.time()
             
         #print 'Batch_size: ', update_freq
-    end_time = time.clock()
+    end_time = time.time()
     print('Optimization complete.')
     print('Best validation score of %f %% obtained at iteration %i,'\
           'with test performance %f %%' %
