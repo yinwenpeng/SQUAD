@@ -31,7 +31,8 @@ from utils_pg import *
 
 #need to try
 '''
-1) add word embeddings as sentence emb, combined with result of LSTM
+1) make uppcase words in paragraph as one word
+2) remove comma marks
 
 '''
 
@@ -42,8 +43,8 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1, emb_size=10,
     print "model options", model_options
     rootPath='/mounts/data/proj/wenpeng/Dataset/SQuAD/';
     rng = numpy.random.RandomState(23455)
-    para_list, Q_list, label_list, mask, Q_size_list, train_vocab_size, word2id=load_train()
-    test_para_list, test_Q_list, test_label_list, test_mask, test_Q_size_list, overall_vocab_size, overall_word2id, test_text_list, q_ansSet_list= load_dev_or_test(word2id)
+    para_list, Q_list, label_list, mask, Q_size_list, train_vocab_size, word2id, feature_tensorlist=load_train()
+    test_para_list, test_Q_list, test_label_list, test_mask, test_Q_size_list, overall_vocab_size, overall_word2id, test_text_list, q_ansSet_list, test_feature_tensorlist= load_dev_or_test(word2id)
 
 
 
@@ -62,6 +63,7 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1, emb_size=10,
     questions = T.imatrix('questions')  
     labels = T.fmatrix('labels')
     submask=T.fmatrix('submask')
+    extraF=T.ftensor3('extraF') # should be in shape (batch, wordsize, 3)
 
 
     
@@ -95,23 +97,26 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1, emb_size=10,
     #attention distributions
     W_a1 = create_ensemble_para(rng, hidden_size, hidden_size)# init_weights((2*hidden_size, hidden_size))
     W_a2 = create_ensemble_para(rng, hidden_size, hidden_size)
-    U_a = create_ensemble_para(rng, 1, hidden_size)
+    U_a = create_ensemble_para(rng, 1, hidden_size+3) # 3 extra features
     
     norm_W_a1=normalize_matrix(W_a1)
     norm_W_a2=normalize_matrix(W_a2)
     norm_U_a=normalize_matrix(U_a)
      
     attention_paras=[W_a1, W_a2, U_a]
-    def AttentionLayer(q_rep):
+    def AttentionLayer(q_rep, ext_M):
         theano_U_a=debug_print(norm_U_a, 'norm_U_a')
         prior_att=debug_print(T.nnet.sigmoid(T.dot(q_rep, norm_W_a1).reshape((1, hidden_size)) + T.dot(paragraph_model.output_matrix.transpose(), norm_W_a2)), 'prior_att')
+        
+        prior_att=T.concatenate([prior_att, ext_M], axis=1)
                               
         strength = debug_print(T.tanh(T.dot(prior_att, theano_U_a)), 'strength') #(#word, 1)
         return strength.transpose() #(1, #words)
  
     distributions, updates = theano.scan(
     AttentionLayer,
-    sequences=questions_reps)
+    sequences=[questions_reps,extraF] )
+    
     distributions=debug_print(distributions.reshape((questions.shape[0],paragraph.shape[0])), 'distributions')
     labels=debug_print(labels, 'labels')
     label_mask=T.gt(labels,0.0)
@@ -147,9 +152,9 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1, emb_size=10,
 
 
 
-    train_model = theano.function([paragraph, questions,labels, submask], error, updates=updates,on_unused_input='ignore')
+    train_model = theano.function([paragraph, questions,labels, submask, extraF], error, updates=updates,on_unused_input='ignore')
     
-    test_model = theano.function([paragraph, questions,submask], distributions, on_unused_input='ignore')
+    test_model = theano.function([paragraph, questions,submask, extraF], distributions, on_unused_input='ignore')
 
 
 
@@ -192,7 +197,8 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1, emb_size=10,
                                 np.asarray(para_list[para_id], dtype='int32'), 
                                       np.asarray(Q_list[para_id], dtype='int32'), 
                                       np.asarray(label_list[para_id], dtype=theano.config.floatX), 
-                                      np.asarray(mask[para_id], dtype=theano.config.floatX))
+                                      np.asarray(mask[para_id], dtype=theano.config.floatX),
+                                      np.asarray(feature_tensorlist[para_id], dtype=theano.config.floatX))
 
             
             if iter%500==0:
@@ -200,15 +206,16 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1, emb_size=10,
                 print 'Paragraph ', para_id, 'uses ', (time.time()-past_time)/60.0, 'min'
                 print 'Testing...'
                 past_time = time.time()
-                
+                 
                 exact_match=0
                 q_amount=0
                 for test_para_id in range(n_test_batches):
                     distribution_matrix=test_model(
                                         np.asarray(test_para_list[test_para_id], dtype='int32'), 
                                               np.asarray(test_Q_list[test_para_id], dtype='int32'), 
-                                              np.asarray(test_mask[test_para_id], dtype=theano.config.floatX))
-                    
+                                              np.asarray(test_mask[test_para_id], dtype=theano.config.floatX),
+                                              np.asarray(test_feature_tensorlist[para_id], dtype=theano.config.floatX))
+                     
                     test_para_word_list=test_text_list[test_para_id]
                     para_gold_ans_list=q_ansSet_list[test_para_id]
                     test_label_matrix=test_label_list[test_para_id]
@@ -218,6 +225,8 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1, emb_size=10,
                         exit(0)
                     q_size=len(distribution_matrix)
                     q_amount+=q_size
+#                     print q_size
+#                     print test_para_word_list
                     for q in range(q_size): #for each question
 #                         if len(distribution_matrix[q])!=len(test_label_matrix[q]):
 #                             print 'len(distribution_matrix[q])!=len(test_label_matrix[q]):', len(distribution_matrix[q]), len(test_label_matrix[q])
@@ -231,6 +240,8 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1, emb_size=10,
                         pred_ans_set=extract_ansList_attentionList(test_para_word_list, distribution_matrix[q])
                         q_gold_ans_set=para_gold_ans_list[q]
                         match_amount=len(pred_ans_set & q_gold_ans_set)
+#                         print 'q_gold_ans_set:', q_gold_ans_set
+#                         print 'pred_ans_set:', pred_ans_set
                         if match_amount>0:
                             exact_match+=match_amount*1.0/len(pred_ans_set)
                 exact_acc=exact_match/q_amount
