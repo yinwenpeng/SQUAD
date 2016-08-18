@@ -214,7 +214,7 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1, emb_size=10,
                                         np.asarray(test_para_list[test_para_id], dtype='int32'), 
                                               np.asarray(test_Q_list[test_para_id], dtype='int32'), 
                                               np.asarray(test_mask[test_para_id], dtype=theano.config.floatX),
-                                              np.asarray(test_feature_tensorlist[para_id], dtype=theano.config.floatX))
+                                              np.asarray(test_feature_tensorlist[test_para_id], dtype=theano.config.floatX))
                      
                     test_para_word_list=test_text_list[test_para_id]
                     para_gold_ans_list=q_ansSet_list[test_para_id]
