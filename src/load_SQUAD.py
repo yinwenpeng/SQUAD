@@ -3,6 +3,7 @@ from pprint import pprint
 import codecs
 import re
 import numpy
+from sklearn.metrics import f1_score
 
 path='/mounts/data/proj/wenpeng/Dataset/SQuAD/'
 
@@ -298,7 +299,7 @@ def fine_grained_subStr(text):
     
     
 
-def extract_ansList_attentionList(word_list, att_list):
+def extract_ansList_attentionList(word_list, att_list, extra_matrix): #extra_matrix in shape (|V|, 3)
     average_att=0.0#reduce(lambda x, y: x + y, att_list) / len(att_list)
     if len(word_list)!=len(att_list):
         print 'len(word_list)!=len(att_list):', len(word_list), len(att_list)
@@ -306,17 +307,23 @@ def extract_ansList_attentionList(word_list, att_list):
     para_len=len(word_list)
     pred_ans_list=[]
     new_answer=''
+    accu_att=0.0
+    ans2att={}
     for pos in range(para_len):
         if att_list[pos]>average_att:
             new_answer+=' '+word_list[pos]
+            accu_att+=att_list[pos]+numpy.sum(extra_matrix[pos])
             new_answer=new_answer.strip()
             if pos == para_len-1 and len(new_answer)>0:
                 pred_ans_list.append(new_answer)
+                ans2att[new_answer]=accu_att/len(new_answer.split())
         else:
             if len(new_answer)>0:
                 if len(new_answer.split())<=4:
                     pred_ans_list.append(new_answer)
+                    ans2att[new_answer]=accu_att/len(new_answer.split())
                 new_answer=''
+                accu_att=0.0
             else:
                 continue
     
@@ -325,7 +332,11 @@ def extract_ansList_attentionList(word_list, att_list):
 #     for pred_ans in pred_ans_list:
 #         fine_grained_ans_set|=fine_grained_subStr(pred_ans.split())
 #     return fine_grained_ans_set
-    return set(pred_ans_list)
+    best_answer=max(ans2att, key=ans2att.get)
+#     print best_answer
+#     exit(0)
+#     return set(pred_ans_list)
+    return best_answer
     
 def  restore_train():
     word2id={}
@@ -438,11 +449,77 @@ def parse_NERed_train():#not useful
     readfile.close()
     writefile.close()
 
+def macrof1(str1, str2):
+    vocab1=set(str1.split())
+    vocab2=set(str2.split())
+    vocab=vocab1|vocab2
+    
+    str1_labellist=[]
+    str2_labellist=[]
+    for word in vocab:
+        if word in vocab1:
+            str1_labellist.append(1)
+        else:
+            str1_labellist.append(0)
+        if word in vocab2:
+            str2_labellist.append(1)
+        else:
+            str2_labellist.append(0)
+    return f1_score(str1_labellist, str2_labellist, average='binary')  
+
+def MacroF1(strQ, strset):
+    max_f1=0.0
+    for strr in strset:    
+        new_f1=macrof1(strQ, strr)
+        if new_f1 > max_f1:
+            max_f1=new_f1
+#     print max_f1
+    return max_f1
+           
+        
+        
+
 if __name__ == '__main__':
     
 #     load_train() 
 #     fine_grained_subStr('what a fuck yorsh  haha'.split())
 #     restore_train()
-    para='The Royal Geographical Society of London and other geographical societies in Europe had great 12th'
-    Q='Halford Mackinder and Friedrich Ratzel where what kind of geographers?'
-    extra_features(para.split(), Q.split())
+#     word_list='haha we ai ni you ci we men yes ok'.split()
+#     att_list=[0.2, -0.4, -0.1, -0.9, -0.01, 0.2, 0.4, 0.1, -0.97, 0.31]
+#     extra_matrix=numpy.asarray([[1,0,1],
+#                                 [0,0,0],
+#                                 [0,1,0],
+#                                 [1,0,0],
+#                                 [0,0,0],
+#                                 [1,0,1],
+#                                 [1,0,1],
+#                                 [1,1,1],
+#                                 [0,0,0],
+#                                 [0,0,0]])
+#     extract_ansList_attentionList(word_list, att_list, extra_matrix)
+    
+    
+    
+#     from sklearn.metrics import f1_score
+#     y_true = ['haha', 'yes']
+#     y_pred = ['haha', 'yes']
+#     print f1_score(y_true, y_pred, average='macro')     
+    strQ='what a fuck yorsh  haha'
+    strset=set(['what a fuck   haha', 'haha yoxo', 'what a fuck   haha, haha yoxo'])
+    MacroF1(strQ, strset)
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    

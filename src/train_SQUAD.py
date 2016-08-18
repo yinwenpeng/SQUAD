@@ -17,7 +17,7 @@ from WPDefined import ConvFoldPoolLayer, dropout_from_layer, shared_dataset, rep
 from cis.deep.utils.theano import debug_print
 from theano.tensor.signal import downsample
 from theano.tensor.nnet import conv
-from load_SQUAD import load_train, load_dev_or_test, extract_ansList_attentionList
+from load_SQUAD import load_train, load_dev_or_test, extract_ansList_attentionList, MacroF1
 from word2embeddings.nn.util import zero_value, random_value_normal
 from common_functions import Bi_GRU_Matrix_Input, Bd_GRU_Batch_Tensor_Input_with_Mask, create_ensemble_para, create_GRU_para, normalize_matrix, L2norm_paraList, Matrix_Bit_Shift, GRU_Batch_Tensor_Input
 from random import shuffle
@@ -31,12 +31,12 @@ from utils_pg import *
 
 #need to try
 '''
-1) make uppcase words in paragraph as one word
-2) remove comma marks
+1) Q rep only uses first 3 hidden states
+2) rank by extra features, and top1 to compute F1
 
 '''
 
-def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1, emb_size=10, hidden_size=10,
+def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1, emb_size=50, hidden_size=50,
                     margin=0.5, L2_weight=0.001):
 
     model_options = locals().copy()
@@ -201,13 +201,13 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1, emb_size=10,
                                       np.asarray(feature_tensorlist[para_id], dtype=theano.config.floatX))
 
             
-            if iter%500==0:
+            if iter%5000==0:
                 print 'training @ iter = '+str(iter)+' average cost: '+str(cost_i/iter)
                 print 'Paragraph ', para_id, 'uses ', (time.time()-past_time)/60.0, 'min'
                 print 'Testing...'
                 past_time = time.time()
                  
-                exact_match=0
+                exact_match=0.0
                 q_amount=0
                 for test_para_id in range(n_test_batches):
                     distribution_matrix=test_model(
@@ -237,17 +237,20 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1, emb_size=10,
 #                                 combine_list.append(str(distribution_matrix[q][ii])+'('+str(test_label_matrix[q][ii])+')')
 #                             print combine_list
 #                         exit(0)
-                        pred_ans_set=extract_ansList_attentionList(test_para_word_list, distribution_matrix[q])
+                        pred_ans=extract_ansList_attentionList(test_para_word_list, distribution_matrix[q], np.asarray(test_feature_tensorlist[test_para_id][q], dtype=theano.config.floatX))
                         q_gold_ans_set=para_gold_ans_list[q]
-                        match_amount=len(pred_ans_set & q_gold_ans_set)
-#                         print 'q_gold_ans_set:', q_gold_ans_set
-#                         print 'pred_ans_set:', pred_ans_set
-                        if match_amount>0:
-                            exact_match+=match_amount*1.0/len(pred_ans_set)
+                        
+                        F1=MacroF1(pred_ans, q_gold_ans_set)
+                        exact_match+=F1
+#                         match_amount=len(pred_ans_set & q_gold_ans_set)
+# #                         print 'q_gold_ans_set:', q_gold_ans_set
+# #                         print 'pred_ans_set:', pred_ans_set
+#                         if match_amount>0:
+#                             exact_match+=match_amount*1.0/len(pred_ans_set)
                 exact_acc=exact_match/q_amount
                 if exact_acc> max_exact_acc:
                     max_exact_acc=exact_acc
-                print 'exact acc:', exact_acc, '\t\tmax exact acc:', max_exact_acc
+                print 'current average F1:', exact_acc, '\t\tmax F1:', max_exact_acc
                         
 
 
