@@ -32,8 +32,15 @@ from utils_pg import *
 #need to try
 '''
 1) Q rep only uses first 3 hidden states
-2) rank by extra features, and top1 to compute F1
+2) logistic regression 
+3) mini-batch
+4) new MacroF1 function
 
+'''
+
+'''
+Train  max_para_len:, 653 max_q_len: 40
+Dev  max_para_len:, 629 max_q_len: 33
 '''
 
 def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1, emb_size=50, hidden_size=50,
@@ -45,7 +52,6 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1, emb_size=50,
     rng = numpy.random.RandomState(23455)
     para_list, Q_list, label_list, mask, Q_size_list, train_vocab_size, word2id, feature_tensorlist=load_train()
     test_para_list, test_Q_list, test_label_list, test_mask, test_Q_size_list, overall_vocab_size, overall_word2id, test_text_list, q_ansSet_list, test_feature_tensorlist= load_dev_or_test(word2id)
-
 
 
 
@@ -61,7 +67,7 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1, emb_size=50,
 #     index = T.lscalar()
     paragraph = T.ivector('paragraph')   
     questions = T.imatrix('questions')  
-    labels = T.fmatrix('labels')
+    labels = T.imatrix('labels')
     submask=T.fmatrix('submask')
     extraF=T.ftensor3('extraF') # should be in shape (batch, wordsize, 3)
 
@@ -97,42 +103,64 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1, emb_size=50,
     #attention distributions
     W_a1 = create_ensemble_para(rng, hidden_size, hidden_size)# init_weights((2*hidden_size, hidden_size))
     W_a2 = create_ensemble_para(rng, hidden_size, hidden_size)
-    U_a = create_ensemble_para(rng, 1, hidden_size+3) # 3 extra features
+#     U_a = create_ensemble_para(rng, 2, hidden_size+3) # 3 extra features
+    
+    U_a= theano.shared(numpy.asarray(rng.uniform(
+                    low=-numpy.sqrt(6. / (hidden_size+3 + 2)),
+                    high=numpy.sqrt(6. / (hidden_size+3 + 2)),
+                    size=(hidden_size+3, 2)), dtype=theano.config.floatX), borrow=True)
+        
+        # initialize the baises b as a vector of n_out 0s
+    LR_b = theano.shared(value=numpy.zeros((2,),
+                                                 dtype=theano.config.floatX),  # @UndefinedVariable
+                               name='LR_b', borrow=True)
     
     norm_W_a1=normalize_matrix(W_a1)
     norm_W_a2=normalize_matrix(W_a2)
     norm_U_a=normalize_matrix(U_a)
      
-    attention_paras=[W_a1, W_a2, U_a]
+    attention_paras=[W_a1, W_a2, U_a,LR_b]
+#     def AttentionLayer(q_rep, ext_M):
+#         theano_U_a=debug_print(norm_U_a, 'norm_U_a')
+#         prior_att=debug_print(T.nnet.sigmoid(T.dot(q_rep, norm_W_a1).reshape((1, hidden_size)) + T.dot(paragraph_model.output_matrix.transpose(), norm_W_a2)), 'prior_att')
+#         
+#         prior_att=T.concatenate([prior_att, ext_M], axis=1)
+#                               
+#         strength = debug_print(T.tanh(T.dot(prior_att, theano_U_a)), 'strength') #(#word, 1)
+#         return strength.transpose() #(1, #words)
     def AttentionLayer(q_rep, ext_M):
         theano_U_a=debug_print(norm_U_a, 'norm_U_a')
         prior_att=debug_print(T.nnet.sigmoid(T.dot(q_rep, norm_W_a1).reshape((1, hidden_size)) + T.dot(paragraph_model.output_matrix.transpose(), norm_W_a2)), 'prior_att')
         
         prior_att=T.concatenate([prior_att, ext_M], axis=1)
-                              
-        strength = debug_print(T.tanh(T.dot(prior_att, theano_U_a)), 'strength') #(#word, 1)
-        return strength.transpose() #(1, #words)
+        
+#         layer3=LogisticRegression(rng, input=prior_att, n_in=hidden_size+3, n_out=2, W=norm_U_a, b=LR_b)
+#         cost_this =layer3.negative_log_likelihood(label_vector)                      
+        
+        return prior_att
  
-    distributions, updates = theano.scan(
+    finalrep, updates = theano.scan(
     AttentionLayer,
     sequences=[questions_reps,extraF] )
     
-    distributions=debug_print(distributions.reshape((questions.shape[0],paragraph.shape[0])), 'distributions')
-    labels=debug_print(labels, 'labels')
-    label_mask=T.gt(labels,0.0)
-    neg_label_mask=T.lt(labels,0.0)
-    dis_masked=distributions*label_mask
-    remain_dis_masked=distributions*neg_label_mask
-    pos_error=((dis_masked-1)**2).mean()
-    neg_error=((remain_dis_masked-(-1))**2).mean()
-    error=pos_error+(T.sum(label_mask)*1.0/T.sum(neg_label_mask))*neg_error
+#     distributions=debug_print(distributions.reshape((questions.shape[0],paragraph.shape[0])), 'distributions')
+#     labels=debug_print(labels, 'labels')
+#     label_mask=T.gt(labels,0.0)
+#     neg_label_mask=T.lt(labels,0.0)
+#     dis_masked=distributions*label_mask
+#     remain_dis_masked=distributions*neg_label_mask
+#     pos_error=((dis_masked-1)**2).mean()
+#     neg_error=((remain_dis_masked-(-1))**2).mean()
+#     error=pos_error+(T.sum(label_mask)*1.0/T.sum(neg_label_mask))*neg_error
     
-
+    layer3=LogisticRegression(rng, input=finalrep.reshape((questions.shape[0]*paragraph.shape[0], hidden_size+3)), n_in=hidden_size+3, n_out=2, W=norm_U_a, b=LR_b)
+    cost_this =layer3.negative_log_likelihood(labels.flatten())
 
     #params = layer3.params + layer2.params + layer1.params+ [conv_W, conv_b]
     params = [embeddings]+paragraph_para+Q_para+attention_paras
     L2_reg =L2norm_paraList(params)
-    cost=error+L2_weight*L2_reg
+#     error=T.mean(distributions)
+    cost=cost_this+L2_weight*L2_reg
     
     
     accumulator=[]
@@ -152,9 +180,9 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1, emb_size=50,
 
 
 
-    train_model = theano.function([paragraph, questions,labels, submask, extraF], error, updates=updates,on_unused_input='ignore')
+    train_model = theano.function([paragraph, questions,labels, submask, extraF], cost_this, updates=updates,on_unused_input='ignore')
     
-    test_model = theano.function([paragraph, questions,submask, extraF], distributions, on_unused_input='ignore')
+    test_model = theano.function([paragraph, questions,submask, extraF], layer3.y_pred.reshape((questions.shape[0],paragraph.shape[0])), on_unused_input='ignore')
 
 
 
@@ -196,12 +224,12 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1, emb_size=50,
             cost_i+= train_model(
                                 np.asarray(para_list[para_id], dtype='int32'), 
                                       np.asarray(Q_list[para_id], dtype='int32'), 
-                                      np.asarray(label_list[para_id], dtype=theano.config.floatX), 
+                                      np.asarray(label_list[para_id], dtype='int32'), 
                                       np.asarray(mask[para_id], dtype=theano.config.floatX),
                                       np.asarray(feature_tensorlist[para_id], dtype=theano.config.floatX))
 
             
-            if iter%5000==0:
+            if iter%500==0:
                 print 'training @ iter = '+str(iter)+' average cost: '+str(cost_i/iter)
                 print 'Paragraph ', para_id, 'uses ', (time.time()-past_time)/60.0, 'min'
                 print 'Testing...'
@@ -216,6 +244,8 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1, emb_size=50,
                                               np.asarray(test_mask[test_para_id], dtype=theano.config.floatX),
                                               np.asarray(test_feature_tensorlist[test_para_id], dtype=theano.config.floatX))
                      
+                    print distribution_matrix[0]
+                    exit(0)
                     test_para_word_list=test_text_list[test_para_id]
                     para_gold_ans_list=q_ansSet_list[test_para_id]
                     test_label_matrix=test_label_list[test_para_id]

@@ -81,6 +81,9 @@ def extra_features(stop_words, paragraph_wordlist, Q_wordlist):
         
 
 def  load_train():
+    max_para_len=653 
+    max_Q_len = 40
+    
     word2id={}
 #     read_file=open(path+'train-v1.0.json', 'r')
     with open(path+'train-v1.0.json') as data_file:    
@@ -132,7 +135,7 @@ def  load_train():
                     answer_start_q-=1
                 answer_left=paragraph[:answer_start_q]
                 answer_left_size=len(answer_left.strip().split())
-                gold_label_q=[-1.0]*answer_left_size+[1.0]*answer_len+[-1.0]*(para_len-answer_left_size-answer_len)
+                gold_label_q=[0]*answer_left_size+[1]*answer_len+[0]*(para_len-answer_left_size-answer_len)
                 
                 Q_sublist.append(question_idlist)
                 if len(label_sublist)>=1 and len(gold_label_q)!=len(label_sublist[-1]):
@@ -236,7 +239,7 @@ def  load_dev_or_test(word2id):
                         answer_start_q-=1
                     answer_left=paragraph[:answer_start_q]
                     answer_left_size=len(answer_left.strip().split())
-                    gold_label_q=[-1.0]*answer_left_size+[1.0]*answer_len+[-1.0]*(para_len-answer_left_size-answer_len)
+                    gold_label_q=[0]*answer_left_size+[1]*answer_len+[0]*(para_len-answer_left_size-answer_len)
                 ansSetList.append(q_ansSet)
                 Q_sublist.append(question_idlist)
                 if len(label_sublist)>=1 and len(gold_label_q)!=len(label_sublist[-1]):
@@ -319,9 +322,9 @@ def extract_ansList_attentionList(word_list, att_list, extra_matrix): #extra_mat
                 ans2att[new_answer]=accu_att/len(new_answer.split())
         else:
             if len(new_answer)>0:
-                if len(new_answer.split())<=4:
-                    pred_ans_list.append(new_answer)
-                    ans2att[new_answer]=accu_att/len(new_answer.split())
+#                 if len(new_answer.split())<=4:
+                pred_ans_list.append(new_answer)
+                ans2att[new_answer]=accu_att/len(new_answer.split())
                 new_answer=''
                 accu_att=0.0
             else:
@@ -332,7 +335,10 @@ def extract_ansList_attentionList(word_list, att_list, extra_matrix): #extra_mat
 #     for pred_ans in pred_ans_list:
 #         fine_grained_ans_set|=fine_grained_subStr(pred_ans.split())
 #     return fine_grained_ans_set
-    best_answer=max(ans2att, key=ans2att.get)
+    if len(ans2att)>0:
+        best_answer=max(ans2att, key=ans2att.get)
+    else:
+        best_answer=None
 #     print best_answer
 #     exit(0)
 #     return set(pred_ans_list)
@@ -468,13 +474,16 @@ def macrof1(str1, str2):
     return f1_score(str1_labellist, str2_labellist, average='binary')  
 
 def MacroF1(strQ, strset):
-    max_f1=0.0
-    for strr in strset:    
-        new_f1=macrof1(strQ, strr)
-        if new_f1 > max_f1:
-            max_f1=new_f1
-#     print max_f1
-    return max_f1
+    if strQ is None:
+        return 0.0
+    else:
+        max_f1=0.0
+        for strr in strset:    
+            new_f1=macrof1(strQ, strr)
+            if new_f1 > max_f1:
+                max_f1=new_f1
+    #     print max_f1
+        return max_f1
            
         
         
