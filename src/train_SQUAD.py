@@ -43,16 +43,24 @@ Train  max_para_len:, 653 max_q_len: 40
 Dev  max_para_len:, 629 max_q_len: 33
 '''
 
-def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1, emb_size=50, hidden_size=50,
-                    margin=0.5, L2_weight=0.001):
+def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1000, emb_size=100, hidden_size=100,
+                    L2_weight=0.0001):
 
     model_options = locals().copy()
     print "model options", model_options
     rootPath='/mounts/data/proj/wenpeng/Dataset/SQuAD/';
     rng = numpy.random.RandomState(23455)
-    para_list, Q_list, label_list, mask, Q_size_list, train_vocab_size, word2id, feature_tensorlist=load_train()
-    test_para_list, test_Q_list, test_label_list, test_mask, test_Q_size_list, overall_vocab_size, overall_word2id, test_text_list, q_ansSet_list, test_feature_tensorlist= load_dev_or_test(word2id)
+    train_para_list, train_Q_list, train_label_list, train_para_mask, train_mask, word2id, train_feature_matrixlist=load_train()
+    train_size=len(train_para_list)
+    if train_size!=len(train_Q_list) or train_size!=len(train_label_list) or train_size!=len(train_para_mask):
+        print 'train_size!=len(Q_list) or train_size!=len(label_list) or train_size!=len(para_mask)'
+        exit(0)
 
+    test_para_list, test_Q_list, test_para_mask, test_mask, overall_vocab_size, overall_word2id, test_text_list, q_ansSet_list, test_feature_matrixlist= load_dev_or_test(word2id)
+    test_size=len(test_para_list)
+    if test_size!=len(test_Q_list) or test_size!=len(test_mask) or test_size!=len(test_para_mask):
+        print 'test_size!=len(test_Q_list) or test_size!=len(test_mask) or test_size!=len(test_para_mask)'
+        exit(0)
 
 
     
@@ -65,10 +73,11 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1, emb_size=50,
     
     # allocate symbolic variables for the data
 #     index = T.lscalar()
-    paragraph = T.ivector('paragraph')   
+    paragraph = T.imatrix('paragraph')   
     questions = T.imatrix('questions')  
-    labels = T.imatrix('labels')
-    submask=T.fmatrix('submask')
+    labels = T.fmatrix('labels')
+    para_mask=T.fmatrix('para_mask')
+    q_mask=T.fmatrix('q_mask')
     extraF=T.ftensor3('extraF') # should be in shape (batch, wordsize, 3)
 
 
@@ -81,45 +90,66 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1, emb_size=50,
     # Reshape matrix of rasterized images of shape (batch_size,28*28)
     # to a 4D tensor, compatible with our LeNetConvPoolLayer
     #layer0_input = x.reshape(((batch_size*4), 1, ishape[0], ishape[1]))
-    paragraph_input = embeddings[paragraph.flatten()].reshape((paragraph.shape[0], emb_size)).transpose() #a matrix with emb_size*para_len
+    paragraph_input = embeddings[paragraph.flatten()].reshape((paragraph.shape[0], paragraph.shape[1], emb_size)).transpose((0, 2,1)) # (batch_size, emb_size, maxparalen)
 #     
 # #     BdGRU(rng, str(0), shape, X, mask, is_train = 1, batch_size = 1, p = 0.5)
 #     
     U1, W1, b1=create_GRU_para(rng, emb_size, hidden_size)
     U1_b, W1_b, b1_b=create_GRU_para(rng, emb_size, hidden_size)
     paragraph_para=[U1, W1, b1, U1_b, W1_b, b1_b] 
-    paragraph_model=Bi_GRU_Matrix_Input(X=paragraph_input, word_dim=emb_size, hidden_dim=hidden_size,U=U1,W=W1,b=b1,U_b=U1_b,W_b=W1_b,b_b=b1_b,bptt_truncate=-1)
-#     
-    Qs_emb = embeddings[questions.flatten()].reshape((questions.shape[0], questions.shape[1], emb_size)).transpose((0, 2,1)) #(#questions, emb_size, maxsenlength)
+    paragraph_model=Bd_GRU_Batch_Tensor_Input_with_Mask(X=paragraph_input, Mask=para_mask, hidden_dim=hidden_size,U=U1,W=W1,b=b1,Ub=U1_b,Wb=W1_b,bb=b1_b,bptt_truncate=-1)
+    para_reps=paragraph_model.output_tensor #(batch, emb, para_len)
 
-#     questions_model = GRULayer(rng, shape=(emb_size, hidden_size), X=Qs_emb, mask=submask.transpose(), is_train = 1, batch_size = questions.shape[0], p = 0.5)
-#     questions_model=GRU_Batch_Tensor_Input(X=Qs_emb, word_dim=emb_size, hidden_dim=hidden_size,U=U1,W=W1,b=b1,U_b=U1_b,W_b=W1_b,b_b=b1_b,bptt_truncate=-1)
+
+
+
+ 
+    Qs_emb = embeddings[questions.flatten()].reshape((questions.shape[0], questions.shape[1], emb_size)).transpose((0, 2,1)) #(#questions, emb_size, maxsenlength)
     UQ, WQ, bQ=create_GRU_para(rng, emb_size, hidden_size)
     UQ_b, WQ_b, bQ_b=create_GRU_para(rng, emb_size, hidden_size)
     Q_para=[UQ, WQ, bQ, UQ_b, WQ_b, bQ_b] 
-    questions_model=Bd_GRU_Batch_Tensor_Input_with_Mask(X=Qs_emb, Mask=submask, hidden_dim=hidden_size, U=UQ,W=WQ,b=bQ, Ub=UQ_b, Wb=WQ_b, bb=bQ_b, bptt_truncate=-1)
-    questions_reps=questions_model.output_sent_rep_maxpooling #(batch, 2*out_size)
+    questions_model=Bd_GRU_Batch_Tensor_Input_with_Mask(X=Qs_emb, Mask=q_mask, hidden_dim=hidden_size, U=UQ,W=WQ,b=bQ, Ub=UQ_b, Wb=WQ_b, bb=bQ_b, bptt_truncate=-1)
+    questions_reps=questions_model.output_sent_rep_maxpooling.reshape((batch_size, 1, hidden_size)) #(batch, 2*out_size)
+    
+    
     
     #attention distributions
     W_a1 = create_ensemble_para(rng, hidden_size, hidden_size)# init_weights((2*hidden_size, hidden_size))
     W_a2 = create_ensemble_para(rng, hidden_size, hidden_size)
-#     U_a = create_ensemble_para(rng, 2, hidden_size+3) # 3 extra features
-    
-    U_a= theano.shared(numpy.asarray(rng.uniform(
-                    low=-numpy.sqrt(6. / (hidden_size+3 + 2)),
-                    high=numpy.sqrt(6. / (hidden_size+3 + 2)),
-                    size=(hidden_size+3, 2)), dtype=theano.config.floatX), borrow=True)
-        
-        # initialize the baises b as a vector of n_out 0s
-    LR_b = theano.shared(value=numpy.zeros((2,),
-                                                 dtype=theano.config.floatX),  # @UndefinedVariable
-                               name='LR_b', borrow=True)
+    U_a = create_ensemble_para(rng, 1, hidden_size+3) # 3 extra features
     
     norm_W_a1=normalize_matrix(W_a1)
     norm_W_a2=normalize_matrix(W_a2)
     norm_U_a=normalize_matrix(U_a)
      
-    attention_paras=[W_a1, W_a2, U_a,LR_b]
+    attention_paras=[W_a1, W_a2, U_a]
+    
+    transformed_para_reps=T.dot(para_reps.transpose((0, 2,1)), norm_W_a2)
+    transformed_q_reps=T.dot(questions_reps, norm_W_a1)
+    
+    add_both=T.nnet.sigmoid(transformed_para_reps+transformed_q_reps)
+    prior_att=T.concatenate([add_both, extraF], axis=2)
+    strength = T.tanh(T.dot(prior_att, norm_U_a)) #(batch, #word, 1)    
+    distributions=debug_print(strength.reshape((batch_size, paragraph.shape[1])), 'distributions')
+    
+    para_mask=para_mask
+    masked_dis=distributions*para_mask
+#     masked_label=debug_print(labels*para_mask, 'masked_label')
+#     error=((masked_dis-masked_label)**2).mean()
+
+
+    label_mask=T.gt(labels,0.0)
+    neg_label_mask=T.lt(labels,0.0)
+    dis_masked=distributions*label_mask
+    remain_dis_masked=distributions*neg_label_mask
+    
+    ans_size=T.sum(label_mask)
+    non_ans_size=T.sum(neg_label_mask)
+    pos_error=T.sum((dis_masked-label_mask)**2)/ans_size
+    neg_error=T.sum((remain_dis_masked-(-neg_label_mask))**2)/non_ans_size
+    error=pos_error+0.5*neg_error #(ans_size*1.0/non_ans_size)*
+
+   
 #     def AttentionLayer(q_rep, ext_M):
 #         theano_U_a=debug_print(norm_U_a, 'norm_U_a')
 #         prior_att=debug_print(T.nnet.sigmoid(T.dot(q_rep, norm_W_a1).reshape((1, hidden_size)) + T.dot(paragraph_model.output_matrix.transpose(), norm_W_a2)), 'prior_att')
@@ -128,20 +158,10 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1, emb_size=50,
 #                               
 #         strength = debug_print(T.tanh(T.dot(prior_att, theano_U_a)), 'strength') #(#word, 1)
 #         return strength.transpose() #(1, #words)
-    def AttentionLayer(q_rep, ext_M):
-        theano_U_a=debug_print(norm_U_a, 'norm_U_a')
-        prior_att=debug_print(T.nnet.sigmoid(T.dot(q_rep, norm_W_a1).reshape((1, hidden_size)) + T.dot(paragraph_model.output_matrix.transpose(), norm_W_a2)), 'prior_att')
-        
-        prior_att=T.concatenate([prior_att, ext_M], axis=1)
-        
-#         layer3=LogisticRegression(rng, input=prior_att, n_in=hidden_size+3, n_out=2, W=norm_U_a, b=LR_b)
-#         cost_this =layer3.negative_log_likelihood(label_vector)                      
-        
-        return prior_att
  
-    finalrep, updates = theano.scan(
-    AttentionLayer,
-    sequences=[questions_reps,extraF] )
+#     distributions, updates = theano.scan(
+#     AttentionLayer,
+#     sequences=[questions_reps,extraF] )
     
 #     distributions=debug_print(distributions.reshape((questions.shape[0],paragraph.shape[0])), 'distributions')
 #     labels=debug_print(labels, 'labels')
@@ -153,14 +173,12 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1, emb_size=50,
 #     neg_error=((remain_dis_masked-(-1))**2).mean()
 #     error=pos_error+(T.sum(label_mask)*1.0/T.sum(neg_label_mask))*neg_error
     
-    layer3=LogisticRegression(rng, input=finalrep.reshape((questions.shape[0]*paragraph.shape[0], hidden_size+3)), n_in=hidden_size+3, n_out=2, W=norm_U_a, b=LR_b)
-    cost_this =layer3.negative_log_likelihood(labels.flatten())
+
 
     #params = layer3.params + layer2.params + layer1.params+ [conv_W, conv_b]
     params = [embeddings]+paragraph_para+Q_para+attention_paras
     L2_reg =L2norm_paraList(params)
-#     error=T.mean(distributions)
-    cost=cost_this+L2_weight*L2_reg
+    cost=error+L2_weight*L2_reg
     
     
     accumulator=[]
@@ -180,9 +198,9 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1, emb_size=50,
 
 
 
-    train_model = theano.function([paragraph, questions,labels, submask, extraF], cost_this, updates=updates,on_unused_input='ignore')
+    train_model = theano.function([paragraph, questions,labels, para_mask, q_mask, extraF], error, updates=updates,on_unused_input='ignore')
     
-    test_model = theano.function([paragraph, questions,submask, extraF], layer3.y_pred.reshape((questions.shape[0],paragraph.shape[0])), on_unused_input='ignore')
+    test_model = theano.function([paragraph, questions,para_mask, q_mask, extraF], masked_dis, on_unused_input='ignore')
 
 
 
@@ -207,57 +225,69 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1, emb_size=50,
     
 
     #para_list, Q_list, label_list, mask, vocab_size=load_train()
-    n_train_batches=len(para_list)
-    n_test_batches=len(test_para_list)
-    
+    n_train_batches=train_size/batch_size
+#     remain_train=train_size%batch_size
+    train_batch_start=list(numpy.arange(n_train_batches)*batch_size)+[train_size-batch_size]
+#     shuffle(train_batch_start)
+
+    n_test_batches=test_size/batch_size
+#     remain_test=test_size%batch_size
+    test_batch_start=list(numpy.arange(n_test_batches)*batch_size)+[test_size-batch_size]
+
+        
     max_exact_acc=0.0
     cost_i=0.0
+    iter_accu=0
     while (epoch < n_epochs) and (not done_looping):
         epoch = epoch + 1
         #for minibatch_index in xrange(n_train_batches): # each batch
         minibatch_index=0
 
-        for para_id in range(n_train_batches): 
+        for para_id in train_batch_start: 
             # iter means how many batches have been runed, taking into loop
-            iter = (epoch - 1) * n_train_batches + para_id +1
-#             para_id=0
+            iter = (epoch - 1) * n_train_batches + iter_accu +1
+            iter_accu+=1
+#             haha=para_mask[para_id:para_id+batch_size]
+#             print haha
+#             for i in range(batch_size):
+#                 print len(haha[i])
             cost_i+= train_model(
-                                np.asarray(para_list[para_id], dtype='int32'), 
-                                      np.asarray(Q_list[para_id], dtype='int32'), 
-                                      np.asarray(label_list[para_id], dtype='int32'), 
-                                      np.asarray(mask[para_id], dtype=theano.config.floatX),
-                                      np.asarray(feature_tensorlist[para_id], dtype=theano.config.floatX))
+                                np.asarray(train_para_list[para_id:para_id+batch_size], dtype='int32'), 
+                                      np.asarray(train_Q_list[para_id:para_id+batch_size], dtype='int32'), 
+                                      np.asarray(train_label_list[para_id:para_id+batch_size], dtype=theano.config.floatX), 
+                                      np.asarray(train_para_mask[para_id:para_id+batch_size], dtype=theano.config.floatX),
+                                      np.asarray(train_mask[para_id:para_id+batch_size], dtype=theano.config.floatX),
+                                      np.asarray(train_feature_matrixlist[para_id:para_id+batch_size], dtype=theano.config.floatX))
 
-            
-            if iter%500==0:
-                print 'training @ iter = '+str(iter)+' average cost: '+str(cost_i/iter)
-                print 'Paragraph ', para_id, 'uses ', (time.time()-past_time)/60.0, 'min'
+            print iter
+            if iter%10==0:
+                print 'Epoch ', epoch, 'iter '+str(iter)+' average cost: '+str(cost_i/iter), 'uses ', (time.time()-past_time)/60.0, 'min'
                 print 'Testing...'
                 past_time = time.time()
-                 
+                  
                 exact_match=0.0
                 q_amount=0
-                for test_para_id in range(n_test_batches):
+                for test_para_id in test_batch_start:
                     distribution_matrix=test_model(
-                                        np.asarray(test_para_list[test_para_id], dtype='int32'), 
-                                              np.asarray(test_Q_list[test_para_id], dtype='int32'), 
-                                              np.asarray(test_mask[test_para_id], dtype=theano.config.floatX),
-                                              np.asarray(test_feature_tensorlist[test_para_id], dtype=theano.config.floatX))
-                     
-                    print distribution_matrix[0]
-                    exit(0)
-                    test_para_word_list=test_text_list[test_para_id]
-                    para_gold_ans_list=q_ansSet_list[test_para_id]
-                    test_label_matrix=test_label_list[test_para_id]
-                    para_len=len(test_para_word_list)
+                                        np.asarray(test_para_list[test_para_id:test_para_id+batch_size], dtype='int32'), 
+                                              np.asarray(test_Q_list[test_para_id:test_para_id+batch_size], dtype='int32'), 
+                                              np.asarray(test_para_mask[test_para_id:test_para_id+batch_size], dtype=theano.config.floatX),
+                                              np.asarray(test_mask[test_para_id:test_para_id+batch_size], dtype=theano.config.floatX),
+                                              np.asarray(test_feature_matrixlist[test_para_id:test_para_id+batch_size], dtype=theano.config.floatX))
+                    
+#                     print distribution_matrix
+                    test_para_wordlist_list=test_text_list[test_para_id:test_para_id+batch_size]
+                    para_gold_ansset_list=q_ansSet_list[test_para_id:test_para_id+batch_size]
+                    paralist_extra_features=test_feature_matrixlist[test_para_id:test_para_id+batch_size]
+                    para_len=len(test_para_wordlist_list[0])
                     if para_len!=len(distribution_matrix[0]):
                         print 'para_len!=len(distribution_matrix[0]):', para_len, len(distribution_matrix[0])
                         exit(0)
-                    q_size=len(distribution_matrix)
-                    q_amount+=q_size
+#                     q_size=len(distribution_matrix)
+                    q_amount+=batch_size
 #                     print q_size
 #                     print test_para_word_list
-                    for q in range(q_size): #for each question
+                    for q in range(batch_size): #for each question
 #                         if len(distribution_matrix[q])!=len(test_label_matrix[q]):
 #                             print 'len(distribution_matrix[q])!=len(test_label_matrix[q]):', len(distribution_matrix[q]), len(test_label_matrix[q])
 #                         else:
@@ -267,9 +297,10 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=1, emb_size=50,
 #                                 combine_list.append(str(distribution_matrix[q][ii])+'('+str(test_label_matrix[q][ii])+')')
 #                             print combine_list
 #                         exit(0)
-                        pred_ans=extract_ansList_attentionList(test_para_word_list, distribution_matrix[q], np.asarray(test_feature_tensorlist[test_para_id][q], dtype=theano.config.floatX))
-                        q_gold_ans_set=para_gold_ans_list[q]
-                        
+#                         print 'distribution_matrix[q]:',distribution_matrix[q]
+                        pred_ans=extract_ansList_attentionList(test_para_wordlist_list[q], distribution_matrix[q], np.asarray(paralist_extra_features[q], dtype=theano.config.floatX))
+                        q_gold_ans_set=para_gold_ansset_list[q]
+                         
                         F1=MacroF1(pred_ans, q_gold_ans_set)
                         exact_match+=F1
 #                         match_amount=len(pred_ans_set & q_gold_ans_set)

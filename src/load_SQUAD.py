@@ -96,37 +96,39 @@ def  load_train():
     qa_size=0
     para_list=[]
     Q_list=[]
-    Q_size_list=[]
+#     Q_size_list=[]
     label_list=[]
+    para_mask=[]
     mask=[]
-    feature_tensorlist=[]
+    feature_matrixlist=[]
     stop_words=load_stopwords()
     for i in range(doc_size):#each doc
         para_size_i=len(data['data'][i]['paragraphs'])
         for j in range(para_size_i):#each paragraph
             question_size_j=len(data['data'][i]['paragraphs'][j]['qas'])
-            Q_size_list.append(question_size_j)
+#             Q_size_list.append(question_size_j)
             paragraph=data['data'][i]['paragraphs'][j]['context']
 #             print 'paragraph:', paragraph
             paragraph_wordlist=paragraph.strip().split()
             paragraph_idlist=strs2ids(paragraph_wordlist, word2id)
             para_len=len(paragraph_wordlist)
             
-            Q_sublist=[]
-            label_sublist=[]
-            feature_tensor=[]
+#             Q_sublist=[]
+#             label_sublist=[]
+#             feature_tensor=[]
             
-            max_q_len=0
+#             max_q_len=0
             for q in range(question_size_j):
                 question_q=data['data'][i]['paragraphs'][j]['qas'][q]['question']
                 question_wordlist=question_q.strip().split()
                 
                 feature_matrix_q=extra_features(stop_words, paragraph_wordlist, question_wordlist)
-                feature_tensor.append(feature_matrix_q)
+#                 feature_tensor.append(feature_matrix_q)
                 
                 question_idlist=strs2ids(question_wordlist, word2id)
-                if len(question_idlist)>max_q_len:
-                    max_q_len=len(question_idlist)
+                q_len=len(question_idlist)
+#                 if len(question_idlist)>max_q_len:
+#                     max_q_len=len(question_idlist)
                 answer_q=data['data'][i]['paragraphs'][j]['qas'][q]['answers'][0]['text']
 #                 print 'answer_q:', answer_q
                 answer_len=len(answer_q.strip().split())
@@ -135,17 +137,41 @@ def  load_train():
                     answer_start_q-=1
                 answer_left=paragraph[:answer_start_q]
                 answer_left_size=len(answer_left.strip().split())
-                gold_label_q=[0]*answer_left_size+[1]*answer_len+[0]*(para_len-answer_left_size-answer_len)
+                gold_label_q=[-1.0]*answer_left_size+[1.0]*answer_len+[-1.0]*(para_len-answer_left_size-answer_len)
+#                 if 1.0 not in set(gold_label_q):
+#                     print answer_q, answer_len
+#                     print '1.0 not in set(gold_label_q)'
+#                     exit(0)
+#                 Q_sublist.append(question_idlist)
+#                 if len(label_sublist)>=1 and len(gold_label_q)!=len(label_sublist[-1]):
+#                     print 'wired size'
+#                     print len(gold_label_q),len(label_sublist[-1])
+#                     exit(0)
+#                 label_sublist.append(gold_label_q)
+                #now, pad paragraph, question, feature_matrix, gold_label
+                #first paragraph
+                pad_para_len=max_para_len-para_len
+                paded_paragraph_idlist=[0]*pad_para_len+paragraph_idlist
+                paded_para_mask_i=[0.0]*pad_para_len+[1.0]*para_len
+                paded_feature_matrix_q=[[0]*3]*pad_para_len+feature_matrix_q
+                paded_gold_label=[0.0]*pad_para_len+gold_label_q
+#                 if 1.0 not in set(paded_gold_label):
+#                     print 'numpy.sum(numpy.asarray(paded_gold_label))<1'
+#                     exit(0)
+                para_list.append(paded_paragraph_idlist)
+                para_mask.append(paded_para_mask_i)
+                feature_matrixlist.append(paded_feature_matrix_q)
+                label_list.append(paded_gold_label)
+                #then question
+                pad_q_len=max_Q_len-q_len
+                paded_question_idlist=[0]*pad_q_len+question_idlist
+                paded_q_mask_i=[0.0]*pad_q_len+[1.0]*q_len
+                Q_list.append(paded_question_idlist)
+                mask.append(paded_q_mask_i)
                 
-                Q_sublist.append(question_idlist)
-                if len(label_sublist)>=1 and len(gold_label_q)!=len(label_sublist[-1]):
-                    print 'wired size'
-                    print len(gold_label_q),len(label_sublist[-1])
-                    exit(0)
-                label_sublist.append(gold_label_q)
             
-            submask=[]
-            Q_sublist_padded=[]
+#             submask=[]
+#             Q_sublist_padded=[]
 #             for orig_q in Q_sublist: # pad zero at end of sentences
 #                 existing_len=len(orig_q)
 #                 pad_len=max_q_len-existing_len
@@ -154,20 +180,20 @@ def  load_train():
 #                 Q_sublist_padded.append(orig_q)
 #                 submask.append([1.0]*existing_len+[0.0]*pad_len)
                 
-            for orig_q in Q_sublist: # pad zero at mid of sentences
-                existing_len=len(orig_q)
-                pad_len=max_q_len-existing_len
-                if pad_len>0:
-                    mid_place=existing_len/2
-                    orig_q=orig_q[:mid_place]+[0]*pad_len+orig_q[mid_place:]
-                Q_sublist_padded.append(orig_q)
-                submask.append([1.0]*mid_place+[0.0]*pad_len+[1.0]*(existing_len-mid_place))          
+#             for orig_q in Q_sublist: # pad zero at mid of sentences
+#                 existing_len=len(orig_q)
+#                 pad_len=max_q_len-existing_len
+#                 if pad_len>0:
+#                     mid_place=existing_len/2
+#                     orig_q=orig_q[:mid_place]+[0]*pad_len+orig_q[mid_place:]
+#                 Q_sublist_padded.append(orig_q)
+#                 submask.append([1.0]*mid_place+[0.0]*pad_len+[1.0]*(existing_len-mid_place))          
                       
-            para_list.append(paragraph_idlist)
-            Q_list.append(Q_sublist_padded)
-            label_list.append(label_sublist)
-            mask.append(submask)
-            feature_tensorlist.append(feature_tensor)    
+            
+#             Q_list.append(Q_sublist_padded)
+#             label_list.append(label_sublist)
+#             mask.append(submask)
+#             feature_tensorlist.append(feature_tensor)    
 #             print 'question_size_j:', question_size_j
             qa_size+=question_size_j
 #         print 'para_size_i:', para_size_i
@@ -176,105 +202,104 @@ def  load_train():
 #     print data['data'][0]['paragraphs'][0]
     print 'Load train set', para_size, 'paragraphs,', qa_size, 'question-answer pairs'
     print 'Train Vocab size:', len(word2id)
-#     print word2id
-    return para_list, Q_list, label_list, mask, Q_size_list, len(word2id), word2id, feature_tensorlist
+#     exit(0)
+    return para_list, Q_list, label_list, para_mask, mask, word2id, feature_matrixlist
 
 def  load_dev_or_test(word2id):
+#     Dev  max_para_len:, 629 max_q_len: 33
 #     read_file=open(path+'train-v1.0.json', 'r')
+    max_para_len=629 
+    max_Q_len = 33
     with open(path+'dev-v1.0.json') as data_file:    
         data = json.load(data_file)
 
 #     pprint(data['data'][0]['paragraphs'][0])
     doc_size=len(data['data'])
 #     print 'doc_size:', doc_size
+
+
+    
+    
     para_size=0
     qa_size=0
     para_list=[]
-    para_text_list=[]
     Q_list=[]
-    Q_size_list=[]
-    label_list=[]
+    para_mask=[]
     mask=[]
-    feature_tensorlist=[]
-    stop_words=load_stopwords()
+    feature_matrixlist=[]
+    para_text_list=[]
     q_ansSet_list=[]
+    stop_words=load_stopwords()
     for i in range(doc_size):#each doc
         para_size_i=len(data['data'][i]['paragraphs'])
         for j in range(para_size_i):#each paragraph
             question_size_j=len(data['data'][i]['paragraphs'][j]['qas']) #how many questions for this paragraph
-            Q_size_list.append(question_size_j)
+#             Q_size_list.append(question_size_j)
             paragraph=data['data'][i]['paragraphs'][j]['context']
 #             print 'paragraph:', paragraph
             paragraph_wordlist=paragraph.strip().split()
-            para_text_list.append(paragraph_wordlist)
+#             para_text_list.append(paragraph_wordlist)
             paragraph_idlist=strs2ids(paragraph_wordlist, word2id)
             para_len=len(paragraph_wordlist)
             
-            Q_sublist=[]
-            label_sublist=[]
-            feature_tensor=[]
-            ansSetList=[]
-            max_q_len=0
+#             Q_sublist=[]
+#             label_sublist=[]
+#             feature_tensor=[]
+#             ansSetList=[]
+#             max_q_len=0
             for q in range(question_size_j): # for each question
                 question_q=data['data'][i]['paragraphs'][j]['qas'][q]['question']
                 question_wordlist=question_q.strip().split()
                 
                 feature_matrix_q=extra_features(stop_words, paragraph_wordlist, question_wordlist)
-                feature_tensor.append(feature_matrix_q)               
+#                 feature_tensor.append(feature_matrix_q)               
                 
                 
                 question_idlist=strs2ids(question_wordlist, word2id)
-                if len(question_idlist)>max_q_len:
-                    max_q_len=len(question_idlist)
+                q_len=len(question_idlist)
+#                 if len(question_idlist)>max_q_len:
+#                     max_q_len=len(question_idlist)
                 
                 answer_no=len(data['data'][i]['paragraphs'][j]['qas'][q]['answers'])
                 q_ansSet=set()
                 for ans in range(answer_no):
                     answer_q=data['data'][i]['paragraphs'][j]['qas'][q]['answers'][ans]['text']
-                    q_ansSet.add(answer_q)
-                    answer_len=len(answer_q.strip().split())
+                    q_ansSet.add(answer_q.strip())
+#                     answer_len=len(answer_q.strip().split())
                  
-                    answer_start_q=data['data'][i]['paragraphs'][j]['qas'][q]['answers'][ans]['answer_start']
-                    while answer_start_q>0 and paragraph[answer_start_q-1]!=' ':
-                        answer_start_q-=1
-                    answer_left=paragraph[:answer_start_q]
-                    answer_left_size=len(answer_left.strip().split())
-                    gold_label_q=[0]*answer_left_size+[1]*answer_len+[0]*(para_len-answer_left_size-answer_len)
-                ansSetList.append(q_ansSet)
-                Q_sublist.append(question_idlist)
-                if len(label_sublist)>=1 and len(gold_label_q)!=len(label_sublist[-1]):
-                    print 'wired size'
-                    print len(gold_label_q),len(label_sublist[-1])
-                    exit(0)
-                label_sublist.append(gold_label_q)
-            
-            submask=[]
-            Q_sublist_padded=[]
-#             for orig_q in Q_sublist:
-#                 existing_len=len(orig_q)
-#                 pad_len=max_q_len-existing_len
-#                 if pad_len>0:
-#                     orig_q+=[0]*pad_len
-#                 Q_sublist_padded.append(orig_q)
-#                 submask.append([1.0]*existing_len+[0.0]*pad_len)
-
-            for orig_q in Q_sublist: # pad zero at mid of sentences
-                existing_len=len(orig_q)
-                pad_len=max_q_len-existing_len
-                if pad_len>0:
-                    mid_place=existing_len/2
-                    orig_q=orig_q[:mid_place]+[0]*pad_len+orig_q[mid_place:]
-                Q_sublist_padded.append(orig_q)
-                submask.append([1.0]*mid_place+[0.0]*pad_len+[1.0]*(existing_len-mid_place))                     
+#                     answer_start_q=data['data'][i]['paragraphs'][j]['qas'][q]['answers'][ans]['answer_start']
+#                     while answer_start_q>0 and paragraph[answer_start_q-1]!=' ':
+#                         answer_start_q-=1
+#                     answer_left=paragraph[:answer_start_q]
+#                     answer_left_size=len(answer_left.strip().split())
+#                     gold_label_q=[-1.0]*answer_left_size+[1.0]*answer_len+[-1.0]*(para_len-answer_left_size-answer_len)
+#                 ansSetList.append(q_ansSet)
+#                 Q_sublist.append(question_idlist)
+#                 if len(label_sublist)>=1 and len(gold_label_q)!=len(label_sublist[-1]):
+#                     print 'wired size'
+#                     print len(gold_label_q),len(label_sublist[-1])
+#                     exit(0)
+#                 label_sublist.append(gold_label_q)
+                #now, pad paragraph, question, feature_matrix, gold_label
+                #first paragraph
+                pad_para_len=max_para_len-para_len
+                paded_paragraph_idlist=[0]*pad_para_len+paragraph_idlist
+                paded_para_mask_i=[0.0]*pad_para_len+[1.0]*para_len
+                paded_feature_matrix_q=[[0]*3]*pad_para_len+feature_matrix_q
+                paded_para_text=['UNK']*pad_para_len+paragraph_wordlist
+                para_list.append(paded_paragraph_idlist)
+                para_mask.append(paded_para_mask_i)
+                feature_matrixlist.append(paded_feature_matrix_q)
+                para_text_list.append(paded_para_text)
+                #then question
+                pad_q_len=max_Q_len-q_len
+                paded_question_idlist=[0]*pad_q_len+question_idlist
+                paded_q_mask_i=[0.0]*pad_q_len+[1.0]*q_len
+                Q_list.append(paded_question_idlist)
+                mask.append(paded_q_mask_i)
+                #then , store answers
+                q_ansSet_list.append(q_ansSet)
                 
-            para_list.append(paragraph_idlist)
-            Q_list.append(Q_sublist_padded)
-            label_list.append(label_sublist)
-            mask.append(submask)
-            feature_tensorlist.append(feature_tensor) 
-            q_ansSet_list.append(ansSetList)
-                
-#             print 'question_size_j:', question_size_j
             qa_size+=question_size_j
 #         print 'para_size_i:', para_size_i
         para_size+=para_size_i
@@ -283,7 +308,7 @@ def  load_dev_or_test(word2id):
     print 'Load dev set', para_size, 'paragraphs,', qa_size, 'question-answer pairs'
     print 'Train+Dev Vocab size:', len(word2id)
 #     print word2id
-    return para_list, Q_list, label_list, mask, Q_size_list, len(word2id), word2id, para_text_list, q_ansSet_list, feature_tensorlist
+    return para_list, Q_list, para_mask, mask, len(word2id), word2id, para_text_list, q_ansSet_list, feature_matrixlist
 
 def fine_grained_subStr(text):
     #supposed text is a word list
