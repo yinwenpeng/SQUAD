@@ -76,7 +76,7 @@ def create_GRU_para(rng, word_dim, hidden_dim):
 def create_ensemble_para(rng, fan_in, fan_out):
 
         # initialize weights with random weights
-        W_bound = numpy.sqrt(6. / (fan_in + fan_out))
+        W_bound = numpy.sqrt(6. /(fan_in + fan_out))
         W = theano.shared(numpy.asarray(
             rng.uniform(low=-W_bound, high=W_bound, size=(fan_out,fan_in)),
             dtype=theano.config.floatX),

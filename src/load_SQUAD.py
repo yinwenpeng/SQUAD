@@ -137,7 +137,7 @@ def  load_train():
                     answer_start_q-=1
                 answer_left=paragraph[:answer_start_q]
                 answer_left_size=len(answer_left.strip().split())
-                gold_label_q=[-1.0]*answer_left_size+[1.0]*answer_len+[-1.0]*(para_len-answer_left_size-answer_len)
+                gold_label_q=[0]*answer_left_size+[1]*answer_len+[0]*(para_len-answer_left_size-answer_len)
 #                 if 1.0 not in set(gold_label_q):
 #                     print answer_q, answer_len
 #                     print '1.0 not in set(gold_label_q)'
@@ -154,7 +154,7 @@ def  load_train():
                 paded_paragraph_idlist=[0]*pad_para_len+paragraph_idlist
                 paded_para_mask_i=[0.0]*pad_para_len+[1.0]*para_len
                 paded_feature_matrix_q=[[0]*3]*pad_para_len+feature_matrix_q
-                paded_gold_label=[0.0]*pad_para_len+gold_label_q
+                paded_gold_label=[0]*pad_para_len+gold_label_q
 #                 if 1.0 not in set(paded_gold_label):
 #                     print 'numpy.sum(numpy.asarray(paded_gold_label))<1'
 #                     exit(0)
@@ -327,20 +327,23 @@ def fine_grained_subStr(text):
     
     
 
-def extract_ansList_attentionList(word_list, att_list, extra_matrix): #extra_matrix in shape (|V|, 3)
-    average_att=0.0#reduce(lambda x, y: x + y, att_list) / len(att_list)
+def extract_ansList_attentionList(word_list, att_list, extra_matrix, mask_list): #extra_matrix in shape (|V|, 3)
+    
     if len(word_list)!=len(att_list):
         print 'len(word_list)!=len(att_list):', len(word_list), len(att_list)
         exit(0)
     para_len=len(word_list)
+    start_point=para_len-int(numpy.sum(numpy.asarray(mask_list)))
+    average_att=numpy.mean(numpy.asarray(att_list[start_point:]))
+    
     pred_ans_list=[]
     new_answer=''
     accu_att=0.0
     ans2att={}
-    for pos in range(para_len):
+    for pos in range(start_point, para_len):
         if att_list[pos]>average_att:
             new_answer+=' '+word_list[pos]
-            accu_att+=att_list[pos]+numpy.sum(extra_matrix[pos])
+            accu_att+=att_list[pos]+0.5*numpy.sum(extra_matrix[pos])
             new_answer=new_answer.strip()
             if pos == para_len-1 and len(new_answer)>0:
                 pred_ans_list.append(new_answer)
@@ -362,6 +365,7 @@ def extract_ansList_attentionList(word_list, att_list, extra_matrix): #extra_mat
 #     return fine_grained_ans_set
     if len(ans2att)>0:
         best_answer=max(ans2att, key=ans2att.get)
+        #best_answer=' '.join(ans2att.keys())
     else:
         best_answer=None
 #     print best_answer
