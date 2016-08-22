@@ -337,9 +337,9 @@ class Word_by_Word_Attention_EntailmentPaper(object):
 
 class Bd_GRU_Batch_Tensor_Input_with_Mask(object):
     # Bidirectional GRU Layer.
-    def __init__(self, X, Mask, hidden_dim, U, W, b, Ub, Wb, bb, bptt_truncate):
-        fwd = GRU_Batch_Tensor_Input_with_Mask(X, Mask, hidden_dim, U, W, b, bptt_truncate)
-        bwd = GRU_Batch_Tensor_Input_with_Mask(X[:,:,::-1], Mask[:,::-1], hidden_dim, Ub, Wb, bb, bptt_truncate)
+    def __init__(self, X, Mask, hidden_dim, U, W, b, Ub, Wb, bb):
+        fwd = GRU_Batch_Tensor_Input_with_Mask(X, Mask, hidden_dim, U, W, b)
+        bwd = GRU_Batch_Tensor_Input_with_Mask(X[:,:,::-1], Mask[:,::-1], hidden_dim, Ub, Wb, bb)
 
 #         output_tensor=T.concatenate([fwd.output_tensor, bwd.output_tensor[:,:,::-1]], axis=1)
         #for word level rep
@@ -353,11 +353,11 @@ class Bd_GRU_Batch_Tensor_Input_with_Mask(object):
         self.output_sent_rep_maxpooling=fwd.output_tensor[:,:,-1]+bwd.output_tensor[:,:,-1]
 
 class GRU_Batch_Tensor_Input_with_Mask(object):
-    def __init__(self, X, Mask, hidden_dim, U, W, b, bptt_truncate):
+    def __init__(self, X, Mask, hidden_dim, U, W, b):
         #now, X is (batch, emb_size, sentlength)
         #Mask is a matrix with (batch, sentlength)
         self.hidden_dim = hidden_dim
-        self.bptt_truncate = bptt_truncate
+#         self.bptt_truncate = bptt_truncate
         self.M=Mask.T
         
         new_tensor=X.dimshuffle(2,1,0)
@@ -376,7 +376,6 @@ class GRU_Batch_Tensor_Input_with_Mask(object):
         s, updates = theano.scan(
             forward_prop_step,
             sequences=[new_tensor, self.M],
-            truncate_gradient=self.bptt_truncate,
             outputs_info=dict(initial=T.zeros((self.hidden_dim, X.shape[0]))))
         
 #         self.output_matrix=debug_print(s.transpose(), 'GRU_Matrix_Input.output_matrix')
@@ -1423,7 +1422,7 @@ def L2norm_paraList(paralist):
     summ=0.0
     
     for para in paralist:
-        summ+=(para** 2).sum()  
+        summ+=(para** 2).mean()  
     return summ  
     
 def cosine_simi(x, y):

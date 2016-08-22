@@ -33,7 +33,7 @@ from utils_pg import *
 '''
 1) Q rep only uses first 3 hidden states
 4) new MacroF1 function
-
+5) make the system deeper
 '''
 
 '''
@@ -95,7 +95,7 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=500, emb_size=1
     U1, W1, b1=create_GRU_para(rng, emb_size, hidden_size)
     U1_b, W1_b, b1_b=create_GRU_para(rng, emb_size, hidden_size)
     paragraph_para=[U1, W1, b1, U1_b, W1_b, b1_b] 
-    paragraph_model=Bd_GRU_Batch_Tensor_Input_with_Mask(X=paragraph_input, Mask=para_mask, hidden_dim=hidden_size,U=U1,W=W1,b=b1,Ub=U1_b,Wb=W1_b,bb=b1_b,bptt_truncate=-1)
+    paragraph_model=Bd_GRU_Batch_Tensor_Input_with_Mask(X=paragraph_input, Mask=para_mask, hidden_dim=hidden_size,U=U1,W=W1,b=b1,Ub=U1_b,Wb=W1_b,bb=b1_b)
     para_reps=paragraph_model.output_tensor #(batch, emb, para_len)
 
 
@@ -106,7 +106,7 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=500, emb_size=1
     UQ, WQ, bQ=create_GRU_para(rng, emb_size, hidden_size)
     UQ_b, WQ_b, bQ_b=create_GRU_para(rng, emb_size, hidden_size)
     Q_para=[UQ, WQ, bQ, UQ_b, WQ_b, bQ_b] 
-    questions_model=Bd_GRU_Batch_Tensor_Input_with_Mask(X=Qs_emb, Mask=q_mask, hidden_dim=hidden_size, U=UQ,W=WQ,b=bQ, Ub=UQ_b, Wb=WQ_b, bb=bQ_b, bptt_truncate=-1)
+    questions_model=Bd_GRU_Batch_Tensor_Input_with_Mask(X=Qs_emb, Mask=q_mask, hidden_dim=hidden_size, U=UQ,W=WQ,b=bQ, Ub=UQ_b, Wb=WQ_b, bb=bQ_b)
     questions_reps=questions_model.output_sent_rep_maxpooling.reshape((batch_size, 1, hidden_size)) #(batch, 2*out_size)
     #questions_reps=T.repeat(questions_reps, para_reps.shape[2], axis=1)
     
@@ -194,7 +194,7 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=500, emb_size=1
     params = [embeddings]+paragraph_para+Q_para+attention_paras
     L2_reg =L2norm_paraList([embeddings,U1, W1, U1_b, W1_b,UQ, WQ, UQ_b, WQ_b, W_a1, W_a2, U_a])
     #L2_reg = L2norm_paraList(params)
-    cost=error#+L2_weight*L2_reg
+    cost=error+L2_weight*L2_reg
     
     
     accumulator=[]
