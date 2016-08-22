@@ -32,8 +32,6 @@ from utils_pg import *
 #need to try
 '''
 1) Q rep only uses first 3 hidden states
-2) logistic regression 
-3) mini-batch
 4) new MacroF1 function
 
 '''
