@@ -17,7 +17,7 @@ from WPDefined import ConvFoldPoolLayer, dropout_from_layer, shared_dataset, rep
 from cis.deep.utils.theano import debug_print
 from theano.tensor.signal import downsample
 from theano.tensor.nnet import conv
-from load_SQUAD import load_train, load_dev_or_test, extract_ansList_attentionList, MacroF1
+from load_SQUAD import load_train, load_dev_or_test, extract_ansList_attentionList, MacroF1, load_word2vec, load_word2vec_to_init
 from word2embeddings.nn.util import zero_value, random_value_normal
 from common_functions import Bi_GRU_Matrix_Input, Bd_GRU_Batch_Tensor_Input_with_Mask, create_ensemble_para, create_GRU_para, normalize_matrix, L2norm_paraList, Matrix_Bit_Shift, GRU_Batch_Tensor_Input
 from random import shuffle
@@ -34,6 +34,7 @@ from utils_pg import *
 1) Q rep only uses first 3 hidden states
 4) new MacroF1 function
 5) make the system deeper
+6) consider passage as sentence sequence, compare question with each question
 '''
 
 '''
@@ -41,31 +42,33 @@ Train  max_para_len:, 653 max_q_len: 40
 Dev  max_para_len:, 629 max_q_len: 33
 '''
 
-def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=500, emb_size=100, hidden_size=100,
-                    L2_weight=0.0001):
+def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=500, emb_size=300, hidden_size=300,
+                    L2_weight=0.0001, para_len_limit=700, q_len_limit=40):
 
     model_options = locals().copy()
     print "model options", model_options
     rootPath='/mounts/data/proj/wenpeng/Dataset/SQuAD/';
     rng = numpy.random.RandomState(23455)
-    train_para_list, train_Q_list, train_label_list, train_para_mask, train_mask, word2id, train_feature_matrixlist=load_train()
+    train_para_list, train_Q_list, train_label_list, train_para_mask, train_mask, word2id, train_feature_matrixlist=load_train(para_len_limit, q_len_limit)
     train_size=len(train_para_list)
     if train_size!=len(train_Q_list) or train_size!=len(train_label_list) or train_size!=len(train_para_mask):
         print 'train_size!=len(Q_list) or train_size!=len(label_list) or train_size!=len(para_mask)'
         exit(0)
 
-    test_para_list, test_Q_list, test_para_mask, test_mask, overall_vocab_size, overall_word2id, test_text_list, q_ansSet_list, test_feature_matrixlist= load_dev_or_test(word2id)
+    test_para_list, test_Q_list, test_para_mask, test_mask, overall_vocab_size, overall_word2id, test_text_list, q_ansSet_list, test_feature_matrixlist= load_dev_or_test(word2id, para_len_limit, q_len_limit)
     test_size=len(test_para_list)
     if test_size!=len(test_Q_list) or test_size!=len(test_mask) or test_size!=len(test_para_mask):
         print 'test_size!=len(test_Q_list) or test_size!=len(test_mask) or test_size!=len(test_para_mask)'
         exit(0)
 
-
+    id2word = {y:x for x,y in overall_word2id.iteritems()}
+    word2vec=load_word2vec()
     
 
 
     rand_values=random_value_normal((overall_vocab_size+1, emb_size), theano.config.floatX, numpy.random.RandomState(1234))
 #     rand_values[0]=numpy.array(numpy.zeros(emb_size),dtype=theano.config.floatX)
+    rand_values=load_word2vec_to_init(rand_values, id2word, word2vec)
     embeddings=theano.shared(value=rand_values, borrow=True)      
 
     
@@ -194,7 +197,7 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=500, emb_size=1
     params = [embeddings]+paragraph_para+Q_para+attention_paras
     L2_reg =L2norm_paraList([embeddings,U1, W1, U1_b, W1_b,UQ, WQ, UQ_b, WQ_b, W_a1, W_a2, U_a])
     #L2_reg = L2norm_paraList(params)
-    cost=error+L2_weight*L2_reg
+    cost=error#+L2_weight*L2_reg
     
     
     accumulator=[]

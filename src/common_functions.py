@@ -64,8 +64,10 @@ def create_Bi_GRU_para(rng, word_dim, hidden_dim):
     
 def create_GRU_para(rng, word_dim, hidden_dim):
         # Initialize the network parameters
-        U = numpy.random.uniform(-numpy.sqrt(1./hidden_dim), numpy.sqrt(1./hidden_dim), (3, hidden_dim, word_dim))
-        W = numpy.random.uniform(-numpy.sqrt(1./hidden_dim), numpy.sqrt(1./hidden_dim), (3, hidden_dim, hidden_dim))
+#         U = numpy.random.uniform(-numpy.sqrt(1./hidden_dim), numpy.sqrt(1./hidden_dim), (3, hidden_dim, word_dim))
+        U=numpy.random.normal(0.0, 0.01, (3, hidden_dim, word_dim))
+#         W = numpy.random.uniform(-numpy.sqrt(1./hidden_dim), numpy.sqrt(1./hidden_dim), (3, hidden_dim, hidden_dim))
+        W=numpy.random.normal(0.0, 0.01, (3, hidden_dim, hidden_dim))
         b = numpy.zeros((3, hidden_dim))
         # Theano: Created shared variables
         U = theano.shared(name='U', value=U.astype(theano.config.floatX), borrow=True)
@@ -351,6 +353,7 @@ class Bd_GRU_Batch_Tensor_Input_with_Mask(object):
 #         self.output_tensor=output_tensor+X # add initialized emb
 #         self.output_sent_rep=self.output_tensor[:,:,-1]
         self.output_sent_rep_maxpooling=fwd.output_tensor[:,:,-1]+bwd.output_tensor[:,:,-1]
+#         self.output_sent_rep_maxpooling=T.concatenate([fwd.output_tensor[:,:,-1], bwd.output_tensor[:,:,-1]], axis=1)
 
 class GRU_Batch_Tensor_Input_with_Mask(object):
     def __init__(self, X, Mask, hidden_dim, U, W, b):
@@ -1417,14 +1420,24 @@ def Determinant(W):
 def normalize_matrix(M):
     norm=T.sqrt(T.sum(T.sqr(M)))
     return M/norm
+def L2norm_paraList(params):
+    return T.sum([T.sum(x ** 2) for x in params])
     
-def L2norm_paraList(paralist):
-    summ=0.0
+# def L2norm_paraList(paralist):
+#     summ=0.0
+#     
+#     for para in paralist:
+#         summ+=(para** 2).mean()  
+#     return summ  
+def constant_param(value=0.0, shape=(0,)):
+#     return theano.shared(lasagne.init.Constant(value).sample(shape), borrow=True)
+    return theano.shared(numpy.full(shape, value, dtype=theano.config.floatX), borrow=True)
     
-    for para in paralist:
-        summ+=(para** 2).mean()  
-    return summ  
-    
+
+def normal_param(std=0.1, mean=0.0, shape=(0,)):
+#     return theano.shared(lasagne.init.Normal(std, mean).sample(shape), borrow=True)
+    U=numpy.random.normal(mean, std, shape)
+    return theano.shared(name='U', value=U.astype(theano.config.floatX), borrow=True)    
 def cosine_simi(x, y):
     #this is better
     a = np.array(x)

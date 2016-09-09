@@ -4,6 +4,20 @@ import codecs
 import re
 import numpy
 from sklearn.metrics import f1_score
+from nltk.tokenize import TreebankWordTokenizer
+
+path='/mounts/data/proj/wenpeng/Dataset/SQuAD/'
+
+def tokenize(str):
+    listt=TreebankWordTokenizer().tokenize(str)
+    refined_listt=[]
+    for word in listt:
+        if word !='.' and word[-1]=='.':
+            refined_listt.append(word[:-1])
+            refined_listt.append('.')
+        else:
+            refined_listt.append(word)
+    return refined_listt
 
 path='/mounts/data/proj/wenpeng/Dataset/SQuAD/'
 
@@ -78,15 +92,15 @@ def extra_features(stop_words, paragraph_wordlist, Q_wordlist):
 #     print features
     return features
             
-        
 
-def  load_train():
-    max_para_len=653 
-    max_Q_len = 40
+
+def  load_train(para_len_limit, q_len_limit):
+    max_para_len=para_len_limit 
+    max_Q_len = q_len_limit
     
     word2id={}
 #     read_file=open(path+'train-v1.0.json', 'r')
-    with open(path+'train-v1.0.json') as data_file:    
+    with open(path+'train-v1.1.json') as data_file:    
         data = json.load(data_file)
 
 #     pprint(data['data'][0]['paragraphs'][0])
@@ -109,9 +123,9 @@ def  load_train():
 #             Q_size_list.append(question_size_j)
             paragraph=data['data'][i]['paragraphs'][j]['context']
 #             print 'paragraph:', paragraph
-            paragraph_wordlist=paragraph.strip().split()
-            paragraph_idlist=strs2ids(paragraph_wordlist, word2id)
-            para_len=len(paragraph_wordlist)
+#             paragraph_wordlist=paragraph.strip().split()
+#             paragraph_idlist=strs2ids(paragraph_wordlist, word2id)
+#             para_len=len(paragraph_wordlist)
             
 #             Q_sublist=[]
 #             label_sublist=[]
@@ -120,9 +134,9 @@ def  load_train():
 #             max_q_len=0
             for q in range(question_size_j):
                 question_q=data['data'][i]['paragraphs'][j]['qas'][q]['question']
-                question_wordlist=question_q.strip().split()
+                question_wordlist=tokenize(question_q.strip())
                 
-                feature_matrix_q=extra_features(stop_words, paragraph_wordlist, question_wordlist)
+                
 #                 feature_tensor.append(feature_matrix_q)
                 
                 question_idlist=strs2ids(question_wordlist, word2id)
@@ -130,31 +144,36 @@ def  load_train():
 #                 if len(question_idlist)>max_q_len:
 #                     max_q_len=len(question_idlist)
                 answer_q=data['data'][i]['paragraphs'][j]['qas'][q]['answers'][0]['text']
-#                 print 'answer_q:', answer_q
-                answer_len=len(answer_q.strip().split())
+                answer_q_wordlist=tokenize(answer_q)
+                answer_len=len(answer_q_wordlist)
                 answer_start_q=data['data'][i]['paragraphs'][j]['qas'][q]['answers'][0]['answer_start']
                 while answer_start_q>0 and paragraph[answer_start_q-1]!=' ':
                     answer_start_q-=1
                 answer_left=paragraph[:answer_start_q]
-                answer_left_size=len(answer_left.strip().split())
-                gold_label_q=[0]*answer_left_size+[1]*answer_len+[0]*(para_len-answer_left_size-answer_len)
-#                 if 1.0 not in set(gold_label_q):
-#                     print answer_q, answer_len
-#                     print '1.0 not in set(gold_label_q)'
-#                     exit(0)
-#                 Q_sublist.append(question_idlist)
-#                 if len(label_sublist)>=1 and len(gold_label_q)!=len(label_sublist[-1]):
-#                     print 'wired size'
-#                     print len(gold_label_q),len(label_sublist[-1])
-#                     exit(0)
-#                 label_sublist.append(gold_label_q)
+                answer_left_wordlist=tokenize(answer_left)
+                answer_left_size=len(answer_left_wordlist)
+                answer_right=paragraph[answer_start_q+len(answer_q):]
+                answer_right_wordlist=tokenize(answer_right)
+                answer_right_size=len(answer_right_wordlist)                
+                gold_label_q=[0]*answer_left_size+[1]*answer_len+[0]*answer_right_size
+
+                para_len=answer_left_size+answer_len+answer_right_size
+                paragraph_wordlist=answer_left_wordlist+answer_q_wordlist+answer_right_wordlist
+                feature_matrix_q=extra_features(stop_words, paragraph_wordlist, question_wordlist)
+                paragraph_idlist=strs2ids(paragraph_wordlist, word2id)
                 #now, pad paragraph, question, feature_matrix, gold_label
                 #first paragraph
                 pad_para_len=max_para_len-para_len
-                paded_paragraph_idlist=[0]*pad_para_len+paragraph_idlist
-                paded_para_mask_i=[0.0]*pad_para_len+[1.0]*para_len
-                paded_feature_matrix_q=[[0]*3]*pad_para_len+feature_matrix_q
-                paded_gold_label=[0]*pad_para_len+gold_label_q
+                if pad_para_len>0:
+                    paded_paragraph_idlist=[0]*pad_para_len+paragraph_idlist
+                    paded_para_mask_i=[0.0]*pad_para_len+[1.0]*para_len
+                    paded_feature_matrix_q=[[0]*3]*pad_para_len+feature_matrix_q
+                    paded_gold_label=[0]*pad_para_len+gold_label_q
+                else:
+                    paded_paragraph_idlist=paded_paragraph_idlist[:max_para_len]
+                    paded_para_mask_i=paded_para_mask_i[:max_para_len]
+                    feature_matrix_q=feature_matrix_q[:max_para_len]
+                    paded_gold_label=paded_gold_label[:max_para_len]
 #                 if 1.0 not in set(paded_gold_label):
 #                     print 'numpy.sum(numpy.asarray(paded_gold_label))<1'
 #                     exit(0)
@@ -164,8 +183,12 @@ def  load_train():
                 label_list.append(paded_gold_label)
                 #then question
                 pad_q_len=max_Q_len-q_len
-                paded_question_idlist=[0]*pad_q_len+question_idlist
-                paded_q_mask_i=[0.0]*pad_q_len+[1.0]*q_len
+                if pad_q_len > 0:
+                    paded_question_idlist=[0]*pad_q_len+question_idlist
+                    paded_q_mask_i=[0.0]*pad_q_len+[1.0]*q_len
+                else:
+                    paded_question_idlist=paded_question_idlist[:max_Q_len]
+                    paded_q_mask_i=paded_q_mask_i[:max_Q_len]
                 Q_list.append(paded_question_idlist)
                 mask.append(paded_q_mask_i)
                 
@@ -205,12 +228,12 @@ def  load_train():
 #     exit(0)
     return para_list, Q_list, label_list, para_mask, mask, word2id, feature_matrixlist
 
-def  load_dev_or_test(word2id):
+def  load_dev_or_test(word2id, para_len_limit, q_len_limit):
 #     Dev  max_para_len:, 629 max_q_len: 33
 #     read_file=open(path+'train-v1.0.json', 'r')
-    max_para_len=629 
-    max_Q_len = 33
-    with open(path+'dev-v1.0.json') as data_file:    
+    max_para_len=para_len_limit 
+    max_Q_len = q_len_limit
+    with open(path+'dev-v1.1.json') as data_file:    
         data = json.load(data_file)
 
 #     pprint(data['data'][0]['paragraphs'][0])
@@ -237,7 +260,7 @@ def  load_dev_or_test(word2id):
 #             Q_size_list.append(question_size_j)
             paragraph=data['data'][i]['paragraphs'][j]['context']
 #             print 'paragraph:', paragraph
-            paragraph_wordlist=paragraph.strip().split()
+            paragraph_wordlist=tokenize(paragraph.strip())
 #             para_text_list.append(paragraph_wordlist)
             paragraph_idlist=strs2ids(paragraph_wordlist, word2id)
             para_len=len(paragraph_wordlist)
@@ -249,7 +272,7 @@ def  load_dev_or_test(word2id):
 #             max_q_len=0
             for q in range(question_size_j): # for each question
                 question_q=data['data'][i]['paragraphs'][j]['qas'][q]['question']
-                question_wordlist=question_q.strip().split()
+                question_wordlist=tokenize(question_q.strip())
                 
                 feature_matrix_q=extra_features(stop_words, paragraph_wordlist, question_wordlist)
 #                 feature_tensor.append(feature_matrix_q)               
@@ -264,7 +287,7 @@ def  load_dev_or_test(word2id):
                 q_ansSet=set()
                 for ans in range(answer_no):
                     answer_q=data['data'][i]['paragraphs'][j]['qas'][q]['answers'][ans]['text']
-                    q_ansSet.add(answer_q.strip())
+                    q_ansSet.add(' '.join(tokenize(answer_q.strip())))
 #                     answer_len=len(answer_q.strip().split())
                  
 #                     answer_start_q=data['data'][i]['paragraphs'][j]['qas'][q]['answers'][ans]['answer_start']
@@ -283,18 +306,35 @@ def  load_dev_or_test(word2id):
                 #now, pad paragraph, question, feature_matrix, gold_label
                 #first paragraph
                 pad_para_len=max_para_len-para_len
-                paded_paragraph_idlist=[0]*pad_para_len+paragraph_idlist
-                paded_para_mask_i=[0.0]*pad_para_len+[1.0]*para_len
-                paded_feature_matrix_q=[[0]*3]*pad_para_len+feature_matrix_q
-                paded_para_text=['UNK']*pad_para_len+paragraph_wordlist
+                if pad_para_len>0:
+                    paded_paragraph_idlist=[0]*pad_para_len+paragraph_idlist
+                    paded_para_mask_i=[0.0]*pad_para_len+[1.0]*para_len
+                    paded_feature_matrix_q=[[0]*3]*pad_para_len+feature_matrix_q
+                    paded_para_text=['UNK']*pad_para_len+paragraph_wordlist
+                else:
+                    paded_paragraph_idlist=paded_paragraph_idlist[:max_para_len]
+                    paded_para_mask_i=paded_para_mask_i[:max_para_len]
+                    feature_matrix_q=feature_matrix_q[:max_para_len]
+                    paded_para_text=paragraph_wordlist[:max_para_len]
+                    
+#                 paded_paragraph_idlist=[0]*pad_para_len+paragraph_idlist
+#                 paded_para_mask_i=[0.0]*pad_para_len+[1.0]*para_len
+#                 paded_feature_matrix_q=[[0]*3]*pad_para_len+feature_matrix_q
+#                 paded_para_text=['UNK']*pad_para_len+paragraph_wordlist
                 para_list.append(paded_paragraph_idlist)
                 para_mask.append(paded_para_mask_i)
                 feature_matrixlist.append(paded_feature_matrix_q)
                 para_text_list.append(paded_para_text)
                 #then question
                 pad_q_len=max_Q_len-q_len
-                paded_question_idlist=[0]*pad_q_len+question_idlist
-                paded_q_mask_i=[0.0]*pad_q_len+[1.0]*q_len
+                if pad_q_len > 0:
+                    paded_question_idlist=[0]*pad_q_len+question_idlist
+                    paded_q_mask_i=[0.0]*pad_q_len+[1.0]*q_len
+                else:
+                    paded_question_idlist=paded_question_idlist[:max_Q_len]
+                    paded_q_mask_i=paded_q_mask_i[:max_Q_len]
+#                 paded_question_idlist=[0]*pad_q_len+question_idlist
+#                 paded_q_mask_i=[0.0]*pad_q_len+[1.0]*q_len
                 Q_list.append(paded_question_idlist)
                 mask.append(paded_q_mask_i)
                 #then , store answers
@@ -500,9 +540,26 @@ def macrof1(str1, str2):
             str2_labellist.append(1)
         else:
             str2_labellist.append(0)
+
+#     TP_pos=0.0
+#     FP_pos=0.0
+#     FN_pos=0.0
+#     for word in vocab:
+#         if word in vocab1 and word in vocab2:
+#             TP_pos+=1
+#         elif word in vocab1 and word not in vocab2:
+#             FP_pos+=1
+#         elif word not in vocab1 and word  in vocab2:
+#             FN_pos+=1
+#     recall=TP_pos/(TP_pos+FN_pos) if TP_pos+FN_pos > 0 else 0.0
+#     precision=TP_pos/(TP_pos+FP_pos) if TP_pos+FP_pos > 0 else 0.0
+#     
+#     f1=2*recall*precision/(recall+precision) if recall+precision> 0 else 0.0
+
     return f1_score(str1_labellist, str2_labellist, average='binary')  
 
 def MacroF1(strQ, strset):
+    
     if strQ is None:
         return 0.0
     else:
@@ -515,7 +572,28 @@ def MacroF1(strQ, strset):
         return max_f1
            
         
-        
+def load_word2vec():
+    word2vec = {}
+    
+    print "==> loading 300d word2vec"
+#     with open(os.path.join(os.path.dirname(os.path.realpath(__file__)), "data/glove/glove.6B." + str(dim) + "d.txt")) as f:
+    f=open('/mounts/data/proj/wenpeng/Dataset/word2vec_words_300d.txt', 'r')
+    for line in f:    
+        l = line.split()
+        word2vec[l[0]] = map(float, l[1:])
+            
+    print "==> word2vec is loaded"
+    
+    return word2vec        
+
+def load_word2vec_to_init(rand_values, ivocab, word2vec):
+    
+    for id, word in ivocab.iteritems():
+        emb=word2vec.get(word)
+        if emb is not None:
+            rand_values[id]=numpy.array(emb)
+    print '==> use word2vec initialization over...'
+    return rand_values
 
 if __name__ == '__main__':
     
