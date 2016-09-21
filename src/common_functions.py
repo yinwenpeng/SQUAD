@@ -5,7 +5,7 @@ import theano.tensor.nlinalg
 from theano.tensor.nnet import conv
 from cis.deep.utils.theano import debug_print
 from WPDefined import repeat_whole_matrix, repeat_whole_tensor
-
+from logistic_sgd import LogisticRegression
 import numpy as np
 from scipy.spatial.distance import cosine
 
@@ -64,10 +64,10 @@ def create_Bi_GRU_para(rng, word_dim, hidden_dim):
     
 def create_GRU_para(rng, word_dim, hidden_dim):
         # Initialize the network parameters
-#         U = numpy.random.uniform(-numpy.sqrt(1./hidden_dim), numpy.sqrt(1./hidden_dim), (3, hidden_dim, word_dim))
-        U=numpy.random.normal(0.0, 0.01, (3, hidden_dim, word_dim))
-#         W = numpy.random.uniform(-numpy.sqrt(1./hidden_dim), numpy.sqrt(1./hidden_dim), (3, hidden_dim, hidden_dim))
-        W=numpy.random.normal(0.0, 0.01, (3, hidden_dim, hidden_dim))
+        U = numpy.random.uniform(-0.01, 0.01, (3, hidden_dim, word_dim))
+#         U=rng.normal(0.0, 0.01, (3, hidden_dim, word_dim))
+        W = numpy.random.uniform(-0.01, 0.01, (3, hidden_dim, hidden_dim))
+#         W=rng.normal(0.0, 0.01, (3, hidden_dim, hidden_dim))
         b = numpy.zeros((3, hidden_dim))
         # Theano: Created shared variables
         U = theano.shared(name='U', value=U.astype(theano.config.floatX), borrow=True)
@@ -76,7 +76,12 @@ def create_GRU_para(rng, word_dim, hidden_dim):
         return U, W, b
 
 def create_ensemble_para(rng, fan_in, fan_out):
+#         W=rng.normal(0.0, 0.01, (fan_out,fan_in))
+# 
+#         W =theano.shared(name='W', value=W.astype(theano.config.floatX), borrow=True)
 
+        
+        
         # initialize weights with random weights
         W_bound = numpy.sqrt(6. /(fan_in + fan_out))
         W = theano.shared(numpy.asarray(
@@ -154,6 +159,8 @@ class Conv_with_input_para(object):
         # width & height
         conv_with_bias = T.tanh(conv_out + self.b.dimshuffle('x', 0, 'x', 'x'))
         narrow_conv_out=conv_with_bias.reshape((image_shape[0], 1, filter_shape[0], image_shape[3]-filter_shape[3]+1)) #(batch, 1, kernerl, ishape[1]-filter_size1[1]+1)
+        
+        self.narrow_conv_out=narrow_conv_out
         
         #pad filter_size-1 zero embeddings at both sides
         left_padding = T.zeros((image_shape[0], 1, filter_shape[0], filter_shape[3]-1), dtype=theano.config.floatX)
@@ -346,7 +353,7 @@ class Bd_GRU_Batch_Tensor_Input_with_Mask(object):
 #         output_tensor=T.concatenate([fwd.output_tensor, bwd.output_tensor[:,:,::-1]], axis=1)
         #for word level rep
         output_tensor=fwd.output_tensor+bwd.output_tensor[:,:,::-1]
-        self.output_tensor=output_tensor+X # add initialized emb
+        self.output_tensor=output_tensor+X[:,:output_tensor.shape[1],:] # add initialized emb
         
         #for final sentence rep
 #         sent_output_tensor=fwd.output_tensor+bwd.output_tensor
@@ -1445,3 +1452,73 @@ def cosine_simi(x, y):
     c = 1-cosine(a,b)
     return c
 
+class Conv_then_GRU_then_Classify(object):
+    """Pool Layer of a convolutional network """
+
+    def __init__(self, rng, concate_paragraph_input, Qs_emb, para_len_limit, q_len_limit, input_h_size_1, output_h_size, input_h_size_2, conv_width, batch_size, para_mask, q_mask, labels, layer_scalar):
+        self.paragraph_para, self.paragraph_conv_output, self.paragraph_gru_output_tensor, self.paragraph_gru_output_reps=conv_then_gru(rng, concate_paragraph_input, output_h_size, input_h_size_1, conv_width, batch_size, para_len_limit, para_mask)
+
+        self.q_para, self.q_conv_output, self.q_gru_output_tensor, self.q_gru_output_reps=conv_then_gru(rng, Qs_emb, output_h_size, input_h_size_2, conv_width, batch_size, q_len_limit, q_mask)
+     
+        LR_mask=para_mask[:,:-1]*para_mask[:,1:]
+        self.classify_para, self.error, self.masked_dis=combine_for_LR(rng, output_h_size, self.paragraph_gru_output_tensor, self.q_gru_output_reps, LR_mask, batch_size, labels)
+        self.masked_dis_inprediction=self.masked_dis*T.sqrt(layer_scalar)
+        self.paras=self.paragraph_para+self.q_para+self.classify_para
+        
+def conv_then_gru(rng, input_tensor3, out_h_size, in_h_size, conv_width, batch_size, size_last_dim, mask):
+    conv_input=input_tensor3.dimshuffle((0,'x', 1,2)) #(batch_size, 1, emb+3, maxparalen)
+    conv_W, conv_b=create_conv_para(rng, filter_shape=(out_h_size, 1, in_h_size, conv_width))
+    conv_para=[conv_W, conv_b]
+    conv_model = Conv_with_input_para(rng, input=conv_input,
+            image_shape=(batch_size, 1, in_h_size, size_last_dim),
+            filter_shape=(out_h_size, 1, in_h_size, conv_width), W=conv_W, b=conv_b)
+    conv_output=conv_model.narrow_conv_out #(batch, 1, hidden_size, maxparalen-1)
+
+    U, W, b=create_GRU_para(rng, out_h_size, out_h_size)
+    U_b, W_b, b_b=create_GRU_para(rng, out_h_size, out_h_size)
+    gru_para=[U, W, b, U_b, W_b, b_b] 
+    gru_input=conv_output.reshape((conv_output.shape[0], conv_output.shape[2], conv_output.shape[3]))
+    gru_mask=mask[:,:-1]*mask[:,1:]
+    gru_model=Bd_GRU_Batch_Tensor_Input_with_Mask(X=gru_input, Mask=gru_mask, hidden_dim=out_h_size,U=U,W=W,b=b,Ub=U_b,Wb=W_b,bb=b_b)
+    gru_output_tensor=gru_model.output_tensor #(batch, hidden_dim, para_len-1)  
+    gru_output_reps=gru_model.output_sent_rep_maxpooling.reshape((batch_size, 1, out_h_size)) #(batch, 2*out_size)
+    
+    overall_para= conv_para + gru_para
+    return overall_para, conv_output, gru_output_tensor, gru_output_reps
+def combine_for_LR(rng, hidden_size, para_reps, questions_reps, para_mask, batch_size, labels):
+    #combine, then classify
+    W_a1 = create_ensemble_para(rng, hidden_size, hidden_size)# init_weights((2*hidden_size, hidden_size))
+    W_a2 = create_ensemble_para(rng, hidden_size, hidden_size)
+    U_a = create_ensemble_para(rng, 2, hidden_size) # 3 extra features
+    
+    norm_W_a1=normalize_matrix(W_a1)
+    norm_W_a2=normalize_matrix(W_a2)
+    norm_U_a=normalize_matrix(U_a)
+
+    LR_b = theano.shared(value=numpy.zeros((2,),
+                                                 dtype=theano.config.floatX),  # @UndefinedVariable
+                               name='LR_b', borrow=True)
+     
+    attention_paras=[W_a1, W_a2, U_a, LR_b]
+    
+    transformed_para_reps=T.tanh(T.dot(para_reps.transpose((0, 2,1)), norm_W_a2))
+    transformed_q_reps=T.tanh(T.dot(questions_reps, norm_W_a1))
+    #transformed_q_reps=T.repeat(transformed_q_reps, transformed_para_reps.shape[1], axis=1)    
+    
+    add_both=0.5*(transformed_para_reps+transformed_q_reps)
+
+    prior_att=add_both
+    combined_size=hidden_size
+
+    
+    #prior_att=T.concatenate([transformed_para_reps, transformed_q_reps], axis=2)
+    valid_indices=para_mask.flatten().nonzero()[0]
+    
+    layer3=LogisticRegression(rng, input=prior_att.reshape((batch_size*prior_att.shape[1], combined_size)), n_in=combined_size, n_out=2, W=norm_U_a, b=LR_b)
+    #error =layer3.negative_log_likelihood(labels.flatten()[valid_indices])
+    error = -T.mean(T.log(layer3.p_y_given_x)[valid_indices, labels.flatten()[valid_indices]])#[T.arange(y.shape[0]), y])
+
+    distributions=layer3.p_y_given_x[:,-1].reshape((batch_size, para_mask.shape[1]))
+    #distributions=layer3.y_pred.reshape((batch_size, para_mask.shape[1]))
+    masked_dis=distributions*para_mask    
+    return  attention_paras, error, masked_dis

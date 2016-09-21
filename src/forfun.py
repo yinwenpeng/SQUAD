@@ -1,6 +1,19 @@
 
 
+def refine_text(sequence):
+    seq=sequence.replace('. ', ' . ')
+    if seq[-1]=='.':
+        seq=seq[:-1]+' .'
+    return seq
 
 
-l = [15, 18, 2, 36, 12, 78, 5, 6, 9]
-print reduce(lambda x, y: x + y, l) / len(l)
+if __name__ == '__main__':
+    
+    lis=['Upper', 'heihei', 'YoHe']
+    
+    print map(lower, lis)
+
+
+
+
+
