@@ -3,8 +3,10 @@ from pprint import pprint
 import codecs
 import re
 import numpy
+import operator
 from sklearn.metrics import f1_score
 from nltk.tokenize import TreebankWordTokenizer
+from common_functions import cosine_simi
 
 path='/mounts/data/proj/wenpeng/Dataset/SQuAD/'
 
@@ -240,7 +242,7 @@ def  load_dev_or_test(word2id, para_len_limit, q_len_limit):
     doc_size=len(data['data'])
 #     print 'doc_size:', doc_size
 
-
+    word2vec=load_word2vec()
     
     
     para_size=0
@@ -262,8 +264,8 @@ def  load_dev_or_test(word2id, para_len_limit, q_len_limit):
 #             print 'paragraph:', paragraph
             paragraph_wordlist=tokenize(paragraph.strip())
 #             para_text_list.append(paragraph_wordlist)
-            paragraph_idlist=strs2ids(paragraph_wordlist, word2id)
-            para_len=len(paragraph_wordlist)
+#             paragraph_idlist=strs2ids(paragraph_wordlist, word2id)
+#             para_len=len(paragraph_wordlist)
             
 #             Q_sublist=[]
 #             label_sublist=[]
@@ -273,8 +275,10 @@ def  load_dev_or_test(word2id, para_len_limit, q_len_limit):
             for q in range(question_size_j): # for each question
                 question_q=data['data'][i]['paragraphs'][j]['qas'][q]['question']
                 question_wordlist=tokenize(question_q.strip())
-                
-                feature_matrix_q=extra_features(stop_words, paragraph_wordlist, question_wordlist)
+                truncate_paragraph_wordlist=truncate_paragraph_by_question(word2vec, paragraph_wordlist, question_wordlist, 1)
+                truncate_paragraph_idlist=strs2ids(truncate_paragraph_wordlist, word2id)
+                truncate_para_len=len(truncate_paragraph_wordlist)
+                feature_matrix_q=extra_features(stop_words, truncate_paragraph_wordlist, question_wordlist)
 #                 feature_tensor.append(feature_matrix_q)               
                 
                 
@@ -305,17 +309,17 @@ def  load_dev_or_test(word2id, para_len_limit, q_len_limit):
 #                 label_sublist.append(gold_label_q)
                 #now, pad paragraph, question, feature_matrix, gold_label
                 #first paragraph
-                pad_para_len=max_para_len-para_len
+                pad_para_len=max_para_len-truncate_para_len
                 if pad_para_len>0:
-                    paded_paragraph_idlist=[0]*pad_para_len+paragraph_idlist
-                    paded_para_mask_i=[0.0]*pad_para_len+[1.0]*para_len
+                    paded_paragraph_idlist=[0]*pad_para_len+truncate_paragraph_idlist
+                    paded_para_mask_i=[0.0]*pad_para_len+[1.0]*truncate_para_len
                     paded_feature_matrix_q=[[0]*3]*pad_para_len+feature_matrix_q
-                    paded_para_text=['UNK']*pad_para_len+paragraph_wordlist
+                    paded_para_text=['UNK']*pad_para_len+truncate_paragraph_wordlist
                 else:
-                    paded_paragraph_idlist=paded_paragraph_idlist[:max_para_len]
-                    paded_para_mask_i=paded_para_mask_i[:max_para_len]
-                    feature_matrix_q=feature_matrix_q[:max_para_len]
-                    paded_para_text=paragraph_wordlist[:max_para_len]
+                    paded_paragraph_idlist=truncate_paragraph_idlist[:max_para_len]
+                    paded_para_mask_i=([1.0]*truncate_para_len)[:max_para_len]
+                    paded_feature_matrix_q=feature_matrix_q[:max_para_len]
+                    paded_para_text=truncate_paragraph_wordlist[:max_para_len]
                     
 #                 paded_paragraph_idlist=[0]*pad_para_len+paragraph_idlist
 #                 paded_para_mask_i=[0.0]*pad_para_len+[1.0]*para_len
@@ -331,8 +335,8 @@ def  load_dev_or_test(word2id, para_len_limit, q_len_limit):
                     paded_question_idlist=[0]*pad_q_len+question_idlist
                     paded_q_mask_i=[0.0]*pad_q_len+[1.0]*q_len
                 else:
-                    paded_question_idlist=paded_question_idlist[:max_Q_len]
-                    paded_q_mask_i=paded_q_mask_i[:max_Q_len]
+                    paded_question_idlist=question_idlist[:max_Q_len]
+                    paded_q_mask_i=([1.0]*q_len)[:max_Q_len]
 #                 paded_question_idlist=[0]*pad_q_len+question_idlist
 #                 paded_q_mask_i=[0.0]*pad_q_len+[1.0]*q_len
                 Q_list.append(paded_question_idlist)
@@ -639,6 +643,38 @@ def load_word2vec():
     
     return word2vec        
 
+def truncate_paragraph_by_question(word2vec, para_wordlist, q_wordlist, topN):
+    #first convert para into sents
+    zero_emb=list(numpy.zeros(300))
+    sents_end_indices=[]
+    sents_end_indices.append(0)
+    para_wordembs=[]
+
+    for i, word in enumerate(para_wordlist):
+        if word =='.' and i > 0:
+            sents_end_indices.append(i)
+        para_wordembs.append(word2vec.get(word, zero_emb))
+    if sents_end_indices[-1] !=len(para_wordlist)-1:
+        sents_end_indices.append(len(para_wordlist)-1)
+#     print sents_end_indices
+    q_wordembs=[]
+    for word in q_wordlist:
+        q_wordembs.append(word2vec.get(word, zero_emb))
+    q_emb=numpy.sum(numpy.asarray(q_wordembs), axis=0)
+    
+    sentid2cos={}
+    for i in range(len(sents_end_indices)-1):
+        sent_emb=numpy.sum(numpy.asarray(para_wordembs[sents_end_indices[i]:sents_end_indices[i+1]]), axis=0)
+        cosine=cosine_simi(q_emb, sent_emb)
+        sentid2cos[i]=cosine
+    sorted_x = sorted(sentid2cos.items(), key=operator.itemgetter(1), reverse=True)
+    new_para_wordlist=[]
+    for sentid, cos in sorted_x[:topN]:
+        new_para_wordlist+=para_wordlist[sents_end_indices[sentid]:sents_end_indices[sentid+1]]
+    return new_para_wordlist
+    
+    
+
 def load_word2vec_to_init(rand_values, ivocab, word2vec):
     
     for id, word in ivocab.iteritems():
@@ -674,5 +710,5 @@ if __name__ == '__main__':
 #     y_pred = ['haha', 'yes']
 #     print f1_score(y_true, y_pred, average='macro')     
     strQ='what a fuck yorsh  haha'
-    strset=set(['what a fuck   haha', 'haha yoxo', 'what a fuck   haha, haha yoxo'])
-    MacroF1(strQ, strset)
+    para_wordlist=tokenize('. agreed to swear fealty to King Charles III of West Francia. Through generations of assimilation and mixing with the native Frankish and Roman-Gaulish populations, their descendants would gradually merge with the Carolingian-based cultures of West Francia. The distinct cultural and ethnic identity of the Normans emerged initially in the first half of the 10th century, and it continued to evolve over the succeeding centuries.')
+    truncate_paragraph_by_question(None, para_wordlist, None)

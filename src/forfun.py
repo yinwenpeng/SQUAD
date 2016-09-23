@@ -8,11 +8,12 @@ def refine_text(sequence):
 
 
 if __name__ == '__main__':
-    
-    lis=['Upper', 'heihei', 'YoHe']
-    
-    print map(lower, lis)
-
+    import operator
+    x = {1: 2, 3: 4, 4: 3, 2: 1, 0: 0}
+    sorted_x = sorted(x.items(), key=operator.itemgetter(1), reverse=True)
+    print sorted_x
+    for key, value in sorted_x:
+        print key, value
 
 
 
