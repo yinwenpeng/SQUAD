@@ -365,7 +365,60 @@ def fine_grained_subStr(text):
 #     print substr_set
     return substr_set
     
+def extract_ansList_attentionList_maxlen5(word_list, att_list, extra_matrix, mask_list): #extra_matrix in shape (|V|, 3)
     
+    max_len=5
+    if len(word_list)!=len(att_list):
+        print 'len(word_list)!=len(att_list):', len(word_list), len(att_list)
+        exit(0)
+    para_len=len(word_list)
+    start_point=para_len-int(numpy.sum(numpy.asarray(mask_list)))
+    average_att=0.5*(numpy.mean(numpy.asarray(att_list[start_point:]))+numpy.max(numpy.asarray(att_list[start_point:])))
+    
+#     pred_ans_list=[]
+    token_list=[]
+    score_list=[]
+    ans2att={}
+    att_list=list(att_list)
+    att_list.append(-100.0) #to make sure to store the last valid answer
+    for pos in range(start_point, para_len+1):
+        if att_list[pos]>average_att:
+            token_list.append(word_list[pos])
+            score_list.append(att_list[pos]+0.5*numpy.sum(extra_matrix[pos]))
+#             new_answer=new_answer.strip()
+#             if pos == para_len-1 and len(new_answer)>0:
+#                 pred_ans_list.append(new_answer)
+#                 ans2att[new_answer]=accu_att/numpy.sqrt(len(new_answer.split()))
+        else:
+            if len(token_list)>0:
+                if len(token_list)>max_len:
+                    for i in range(len(token_list)-max_len):
+                        new_answer=' '.join(token_list[i:i+max_len])
+                        new_score=numpy.sum(numpy.asarray(score_list[i:i+max_len]))/numpy.sqrt(max_len)
+                        ans2att[new_answer]=new_score
+                else:
+                    new_answer=' '.join(token_list)
+                    new_score=numpy.sum(numpy.asarray(score_list))/numpy.sqrt(len(token_list))
+                    ans2att[new_answer]=new_score                    
+                del token_list[:]
+                del score_list[:]
+            else:
+                continue
+    
+#     print 'pred_ans_list:', pred_ans_list
+#     fine_grained_ans_set=set()
+#     for pred_ans in pred_ans_list:
+#         fine_grained_ans_set|=fine_grained_subStr(pred_ans.split())
+#     return fine_grained_ans_set
+    if len(ans2att)>0:
+        best_answer=max(ans2att, key=ans2att.get)
+        #best_answer=' '.join(ans2att.keys())
+    else:
+        best_answer=None
+#     print best_answer
+#     exit(0)
+#     return set(pred_ans_list)
+    return best_answer    
 
 def extract_ansList_attentionList(word_list, att_list, extra_matrix, mask_list): #extra_matrix in shape (|V|, 3)
     
@@ -387,12 +440,12 @@ def extract_ansList_attentionList(word_list, att_list, extra_matrix, mask_list):
             new_answer=new_answer.strip()
             if pos == para_len-1 and len(new_answer)>0:
                 pred_ans_list.append(new_answer)
-                ans2att[new_answer]=accu_att/len(new_answer.split())
+                ans2att[new_answer]=accu_att/numpy.sqrt(len(new_answer.split()))
         else:
             if len(new_answer)>0:
 #                 if len(new_answer.split())<=4:
                 pred_ans_list.append(new_answer)
-                ans2att[new_answer]=accu_att/len(new_answer.split())
+                ans2att[new_answer]=accu_att/numpy.sqrt(len(new_answer.split()))
                 new_answer=''
                 accu_att=0.0
             else:
@@ -623,19 +676,3 @@ if __name__ == '__main__':
     strQ='what a fuck yorsh  haha'
     strset=set(['what a fuck   haha', 'haha yoxo', 'what a fuck   haha, haha yoxo'])
     MacroF1(strQ, strset)
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    

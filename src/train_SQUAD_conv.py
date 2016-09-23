@@ -18,7 +18,7 @@ from WPDefined import ConvFoldPoolLayer, dropout_from_layer, shared_dataset, rep
 from cis.deep.utils.theano import debug_print
 from theano.tensor.signal import downsample
 from theano.tensor.nnet import conv
-from load_SQUAD import load_train, load_dev_or_test, extract_ansList_attentionList, MacroF1, load_word2vec, load_word2vec_to_init
+from load_SQUAD import load_train, load_dev_or_test, extract_ansList_attentionList, extract_ansList_attentionList_maxlen5, MacroF1, load_word2vec, load_word2vec_to_init
 from word2embeddings.nn.util import zero_value, random_value_normal
 from common_functions import Conv_then_GRU_then_Classify, Bd_GRU_Batch_Tensor_Input_with_Mask, create_ensemble_para, create_GRU_para, normalize_matrix, create_conv_para, Matrix_Bit_Shift, Conv_with_input_para
 from random import shuffle
@@ -62,13 +62,14 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=500, emb_size=1
         print 'test_size!=len(test_Q_list) or test_size!=len(test_mask) or test_size!=len(test_para_mask)'
         exit(0)
 
-    id2word = {y:x for x,y in overall_word2id.iteritems()}
-    word2vec=load_word2vec()
+
     
 
 
     rand_values=random_value_normal((overall_vocab_size+1, emb_size), theano.config.floatX, numpy.random.RandomState(1234))
 #     rand_values[0]=numpy.array(numpy.zeros(emb_size),dtype=theano.config.floatX)
+#     id2word = {y:x for x,y in overall_word2id.iteritems()}
+#     word2vec=load_word2vec()
 #     rand_values=load_word2vec_to_init(rand_values, id2word, word2vec)
     embeddings=theano.shared(value=rand_values, borrow=True)      
 
@@ -114,7 +115,11 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=500, emb_size=1
     
     new_labels=T.gt(labels[:,:-1]+labels[:,1:], 0.0)
     ConvGRU_1=Conv_then_GRU_then_Classify(rng, concate_paragraph_input, Qs_emb, para_len_limit, q_len_limit, emb_size+3, hidden_size, emb_size, 2, batch_size, para_mask, q_mask, new_labels, 2)
-    
+    ConvGRU_1_dis=ConvGRU_1.masked_dis_inprediction
+    padding_vec = T.zeros((batch_size, 1), dtype=theano.config.floatX)
+    ConvGRU_1_dis_leftpad=T.concatenate([padding_vec, ConvGRU_1_dis], axis=1) 
+    ConvGRU_1_dis_rightpad=T.concatenate([ConvGRU_1_dis, padding_vec], axis=1) 
+    ConvGRU_1_dis_into_unigram=0.5*(ConvGRU_1_dis_leftpad+ConvGRU_1_dis_rightpad)
        
     #attention distributions
     W_a1 = create_ensemble_para(rng, hidden_size, hidden_size)# init_weights((2*hidden_size, hidden_size))
@@ -154,6 +159,7 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=500, emb_size=1
 
     distributions=layer3.p_y_given_x[:,-1].reshape((batch_size, para_mask.shape[1]))
     #distributions=layer3.y_pred.reshape((batch_size, para_mask.shape[1]))
+#     masked_dis=(distributions+ConvGRU_1_dis_into_unigram)*para_mask
     masked_dis=distributions*para_mask
     '''
     strength = T.tanh(T.dot(prior_att, norm_U_a)) #(batch, #word, 1)    
