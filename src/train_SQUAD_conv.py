@@ -56,7 +56,7 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=500, emb_size=1
         print 'train_size!=len(Q_list) or train_size!=len(label_list) or train_size!=len(para_mask)'
         exit(0)
 
-    test_para_list, test_Q_list, test_para_mask, test_mask, overall_vocab_size, overall_word2id, test_text_list, q_ansSet_list, test_feature_matrixlist= load_dev_or_test(word2id, 40, q_len_limit)
+    test_para_list, test_Q_list, test_Q_list_word, test_para_mask, test_mask, overall_vocab_size, overall_word2id, test_text_list, q_ansSet_list, test_feature_matrixlist= load_dev_or_test(word2id, 40, q_len_limit)
     test_size=len(test_para_list)
     if test_size!=len(test_Q_list) or test_size!=len(test_mask) or test_size!=len(test_para_mask):
         print 'test_size!=len(test_Q_list) or test_size!=len(test_mask) or test_size!=len(test_para_mask)'
@@ -68,7 +68,7 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=500, emb_size=1
 
     rand_values=random_value_normal((overall_vocab_size+1, emb_size), theano.config.floatX, numpy.random.RandomState(1234))
 #     rand_values[0]=numpy.array(numpy.zeros(emb_size),dtype=theano.config.floatX)
-#     id2word = {y:x for x,y in overall_word2id.iteritems()}
+    id2word = {y:x for x,y in overall_word2id.iteritems()}
 #     word2vec=load_word2vec()
 #     rand_values=load_word2vec_to_init(rand_values, id2word, word2vec)
     embeddings=theano.shared(value=rand_values, borrow=True)      
@@ -320,6 +320,8 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=500, emb_size=1
                     q_amount+=batch_size
 #                     print q_size
 #                     print test_para_word_list
+                    
+                    Q_list_inword=test_Q_list_word[test_para_id:test_para_id+batch_size]
                     for q in range(batch_size): #for each question
 #                         if len(distribution_matrix[q])!=len(test_label_matrix[q]):
 #                             print 'len(distribution_matrix[q])!=len(test_label_matrix[q]):', len(distribution_matrix[q]), len(test_label_matrix[q])
@@ -331,7 +333,7 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=500, emb_size=1
 #                             print combine_list
 #                         exit(0)
 #                         print 'distribution_matrix[q]:',distribution_matrix[q]
-                        pred_ans=extract_ansList_attentionList(test_para_wordlist_list[q], distribution_matrix[q], np.asarray(paralist_extra_features[q], dtype=theano.config.floatX), sub_para_mask[q])
+                        pred_ans=extract_ansList_attentionList(test_para_wordlist_list[q], distribution_matrix[q], np.asarray(paralist_extra_features[q], dtype=theano.config.floatX), sub_para_mask[q], Q_list_inword[q])
                         q_gold_ans_set=para_gold_ansset_list[q]
                          
                         F1=MacroF1(pred_ans, q_gold_ans_set)

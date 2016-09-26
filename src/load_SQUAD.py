@@ -94,7 +94,27 @@ def extra_features(stop_words, paragraph_wordlist, Q_wordlist):
 #     print features
     return features
             
-
+def truncate_by_punct( wordlist, from_right_to_left):
+    if from_right_to_left:
+        i=len(wordlist)-1
+        while i > -1:
+            if wordlist[i]=='.' and i < len(wordlist)-1:
+                break
+            i-=1
+        if i==0:
+            return wordlist[i:]
+        else:
+            return wordlist[i+1:]
+    else:
+        i=0
+        while i < len(wordlist):
+            if wordlist[i]=='.' and i >0:
+                break
+            i+=1
+        if i == len(wordlist)-1:
+            return wordlist
+        else:
+            return wordlist[:i]        
 
 def  load_train(para_len_limit, q_len_limit):
     max_para_len=para_len_limit 
@@ -152,9 +172,11 @@ def  load_train(para_len_limit, q_len_limit):
                 while answer_start_q>0 and paragraph[answer_start_q-1]!=' ':
                     answer_start_q-=1
                 answer_left=paragraph[:answer_start_q]
+#                 answer_left_wordlist=truncate_by_punct(tokenize(answer_left), True)
                 answer_left_wordlist=tokenize(answer_left)
                 answer_left_size=len(answer_left_wordlist)
                 answer_right=paragraph[answer_start_q+len(answer_q):]
+#                 answer_right_wordlist=truncate_by_punct(tokenize(answer_right), False)
                 answer_right_wordlist=tokenize(answer_right)
                 answer_right_size=len(answer_right_wordlist)                
                 gold_label_q=[0]*answer_left_size+[1]*answer_len+[0]*answer_right_size
@@ -172,10 +194,10 @@ def  load_train(para_len_limit, q_len_limit):
                     paded_feature_matrix_q=[[0]*3]*pad_para_len+feature_matrix_q
                     paded_gold_label=[0]*pad_para_len+gold_label_q
                 else:
-                    paded_paragraph_idlist=paded_paragraph_idlist[:max_para_len]
-                    paded_para_mask_i=paded_para_mask_i[:max_para_len]
-                    feature_matrix_q=feature_matrix_q[:max_para_len]
-                    paded_gold_label=paded_gold_label[:max_para_len]
+                    paded_paragraph_idlist=paragraph_idlist[:max_para_len]
+                    paded_para_mask_i=([1.0]*para_len)[:max_para_len]
+                    paded_feature_matrix_q=feature_matrix_q[:max_para_len]
+                    paded_gold_label=gold_label_q[:max_para_len]
 #                 if 1.0 not in set(paded_gold_label):
 #                     print 'numpy.sum(numpy.asarray(paded_gold_label))<1'
 #                     exit(0)
@@ -189,8 +211,8 @@ def  load_train(para_len_limit, q_len_limit):
                     paded_question_idlist=[0]*pad_q_len+question_idlist
                     paded_q_mask_i=[0.0]*pad_q_len+[1.0]*q_len
                 else:
-                    paded_question_idlist=paded_question_idlist[:max_Q_len]
-                    paded_q_mask_i=paded_q_mask_i[:max_Q_len]
+                    paded_question_idlist=question_idlist[:max_Q_len]
+                    paded_q_mask_i=([1.0]*q_len)[:max_Q_len]
                 Q_list.append(paded_question_idlist)
                 mask.append(paded_q_mask_i)
                 
@@ -249,6 +271,7 @@ def  load_dev_or_test(word2id, para_len_limit, q_len_limit):
     qa_size=0
     para_list=[]
     Q_list=[]
+    Q_list_word=[]
     para_mask=[]
     mask=[]
     feature_matrixlist=[]
@@ -340,6 +363,7 @@ def  load_dev_or_test(word2id, para_len_limit, q_len_limit):
 #                 paded_question_idlist=[0]*pad_q_len+question_idlist
 #                 paded_q_mask_i=[0.0]*pad_q_len+[1.0]*q_len
                 Q_list.append(paded_question_idlist)
+                Q_list_word.append(question_wordlist)
                 mask.append(paded_q_mask_i)
                 #then , store answers
                 q_ansSet_list.append(q_ansSet)
@@ -352,7 +376,7 @@ def  load_dev_or_test(word2id, para_len_limit, q_len_limit):
     print 'Load dev set', para_size, 'paragraphs,', qa_size, 'question-answer pairs'
     print 'Train+Dev Vocab size:', len(word2id)
 #     print word2id
-    return para_list, Q_list, para_mask, mask, len(word2id), word2id, para_text_list, q_ansSet_list, feature_matrixlist
+    return para_list, Q_list, Q_list_word, para_mask, mask, len(word2id), word2id, para_text_list, q_ansSet_list, feature_matrixlist
 
 def fine_grained_subStr(text):
     #supposed text is a word list
@@ -424,8 +448,9 @@ def extract_ansList_attentionList_maxlen5(word_list, att_list, extra_matrix, mas
 #     return set(pred_ans_list)
     return best_answer    
 
-def extract_ansList_attentionList(word_list, att_list, extra_matrix, mask_list): #extra_matrix in shape (|V|, 3)
+def extract_ansList_attentionList(word_list, att_list, extra_matrix, mask_list, q_wordlist): #extra_matrix in shape (|V|, 3)
     
+    q_wordset=set(q_wordlist)
     if len(word_list)!=len(att_list):
         print 'len(word_list)!=len(att_list):', len(word_list), len(att_list)
         exit(0)
@@ -438,7 +463,7 @@ def extract_ansList_attentionList(word_list, att_list, extra_matrix, mask_list):
     accu_att=0.0
     ans2att={}
     for pos in range(start_point, para_len):
-        if att_list[pos]>average_att:
+        if att_list[pos]>average_att and word_list[pos] not in q_wordset:
             new_answer+=' '+word_list[pos]
             accu_att+=att_list[pos]+0.5*numpy.sum(extra_matrix[pos])
             new_answer=new_answer.strip()
@@ -684,6 +709,10 @@ def load_word2vec_to_init(rand_values, ivocab, word2vec):
     print '==> use word2vec initialization over...'
     return rand_values
 
+
+    
+    
+
 if __name__ == '__main__':
     
 #     load_train() 
@@ -710,5 +739,5 @@ if __name__ == '__main__':
 #     y_pred = ['haha', 'yes']
 #     print f1_score(y_true, y_pred, average='macro')     
     strQ='what a fuck yorsh  haha'
-    para_wordlist=tokenize('. agreed to swear fealty to King Charles III of West Francia. Through generations of assimilation and mixing with the native Frankish and Roman-Gaulish populations, their descendants would gradually merge with the Carolingian-based cultures of West Francia. The distinct cultural and ethnic identity of the Normans emerged initially in the first half of the 10th century, and it continued to evolve over the succeeding centuries.')
-    truncate_paragraph_by_question(None, para_wordlist, None)
+    para_wordlist=tokenize('agreed to swear fealty to King Charles III of West Francia')
+    print truncate_by_punct(para_wordlist, True)
