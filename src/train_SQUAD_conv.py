@@ -20,7 +20,7 @@ from theano.tensor.signal import downsample
 from theano.tensor.nnet import conv
 from load_SQUAD import load_train, load_dev_or_test, extract_ansList_attentionList, extract_ansList_attentionList_maxlen5, MacroF1, load_word2vec, load_word2vec_to_init
 from word2embeddings.nn.util import zero_value, random_value_normal
-from common_functions import Conv_then_GRU_then_Classify, Bd_GRU_Batch_Tensor_Input_with_Mask, create_ensemble_para, create_GRU_para, normalize_matrix, create_conv_para, Matrix_Bit_Shift, Conv_with_input_para
+from common_functions import Conv_then_GRU_then_Classify, Bd_GRU_Batch_Tensor_Input_with_Mask, create_ensemble_para, create_GRU_para, normalize_matrix, create_conv_para, Matrix_Bit_Shift, Conv_with_input_para, L2norm_paraList
 from random import shuffle
 from gru import BdGRU, GRULayer
 from utils_pg import *
@@ -56,7 +56,7 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=2000, batch_size=500, emb_size=1
         print 'train_size!=len(Q_list) or train_size!=len(label_list) or train_size!=len(para_mask)'
         exit(0)
 
-    test_para_list, test_Q_list, test_Q_list_word, test_para_mask, test_mask, overall_vocab_size, overall_word2id, test_text_list, q_ansSet_list, test_feature_matrixlist= load_dev_or_test(word2id, 40, q_len_limit)
+    test_para_list, test_Q_list, test_Q_list_word, test_para_mask, test_mask, overall_vocab_size, overall_word2id, test_text_list, q_ansSet_list, test_feature_matrixlist= load_dev_or_test(word2id, para_len_limit, q_len_limit)
     test_size=len(test_para_list)
     if test_size!=len(test_Q_list) or test_size!=len(test_mask) or test_size!=len(test_para_mask):
         print 'test_size!=len(test_Q_list) or test_size!=len(test_mask) or test_size!=len(test_para_mask)'
@@ -136,8 +136,8 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=2000, batch_size=500, emb_size=1
      
     attention_paras=[W_a1, W_a2, U_a, LR_b]
     
-    transformed_para_reps=T.tanh(T.dot(para_reps.transpose((0, 2,1)), norm_W_a2))
-    transformed_q_reps=T.tanh(T.dot(questions_reps, norm_W_a1))
+    transformed_para_reps=T.maximum(T.dot(para_reps.transpose((0, 2,1)), norm_W_a2),0.0)
+    transformed_q_reps=T.maximum(T.dot(questions_reps, norm_W_a1),0.0)
     #transformed_q_reps=T.repeat(transformed_q_reps, transformed_para_reps.shape[1], axis=1)    
     
     add_both=0.5*(transformed_para_reps+transformed_q_reps)
@@ -208,7 +208,7 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=2000, batch_size=500, emb_size=1
 
     #params = layer3.params + layer2.params + layer1.params+ [conv_W, conv_b]
     params = [embeddings]+paragraph_para+Q_para+attention_paras+ConvGRU_1.paras
-#     L2_reg =L2norm_paraList([embeddings,U1, W1, U1_b, W1_b,UQ, WQ, UQ_b, WQ_b, W_a1, W_a2, U_a, U_c, W_c, b_c, U_c_b, W_c_b, b_c_b])
+    L2_reg =L2norm_paraList([embeddings,U1, W1, U1_b, W1_b,UQ, WQ, UQ_b, WQ_b, W_a1, W_a2, U_a])
     #L2_reg = L2norm_paraList(params)
     cost=error+ConvGRU_1.error#+L2_weight*L2_reg
     
