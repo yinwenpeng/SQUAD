@@ -43,7 +43,7 @@ Train  max_para_len:, 653 max_q_len: 40
 Dev  max_para_len:, 629 max_q_len: 33
 '''
 
-def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=500, emb_size=10, hidden_size=10,
+def evaluate_lenet5(learning_rate=0.1, n_epochs=2000, batch_size=500, emb_size=10, hidden_size=10,
                     L2_weight=0.0001, para_len_limit=100, q_len_limit=40):
 
     model_options = locals().copy()
