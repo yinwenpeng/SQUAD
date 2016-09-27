@@ -4,6 +4,7 @@ import codecs
 import re
 import numpy
 import operator
+import string
 from sklearn.metrics import f1_score
 from nltk.tokenize import TreebankWordTokenizer
 from common_functions import cosine_simi
@@ -393,15 +394,15 @@ def fine_grained_subStr(text):
 #     print substr_set
     return substr_set
     
-def extract_ansList_attentionList_maxlen5(word_list, att_list, extra_matrix, mask_list): #extra_matrix in shape (|V|, 3)
-    
-    max_len=5
+def extract_ansList_attentionList_maxlen5(word_list, att_list, extra_matrix, mask_list, q_wordlist): #extra_matrix in shape (|V|, 3)
+    q_wordset=set(q_wordlist)
+    max_len=3
     if len(word_list)!=len(att_list):
         print 'len(word_list)!=len(att_list):', len(word_list), len(att_list)
         exit(0)
     para_len=len(word_list)
     start_point=para_len-int(numpy.sum(numpy.asarray(mask_list)))
-    average_att=0.5*(numpy.mean(numpy.asarray(att_list[start_point:]))+numpy.max(numpy.asarray(att_list[start_point:])))
+    average_att=numpy.mean(numpy.asarray(att_list[start_point:]))
     
 #     pred_ans_list=[]
     token_list=[]
@@ -410,7 +411,7 @@ def extract_ansList_attentionList_maxlen5(word_list, att_list, extra_matrix, mas
     att_list=list(att_list)
     att_list.append(-100.0) #to make sure to store the last valid answer
     for pos in range(start_point, para_len+1):
-        if att_list[pos]>average_att:
+        if att_list[pos]>average_att and word_list[pos] not in q_wordset:# and word_list[pos] not in string.punctuation:
             token_list.append(word_list[pos])
             score_list.append(att_list[pos]+0.5*numpy.sum(extra_matrix[pos]))
 #             new_answer=new_answer.strip()
@@ -463,7 +464,7 @@ def extract_ansList_attentionList(word_list, att_list, extra_matrix, mask_list, 
     accu_att=0.0
     ans2att={}
     for pos in range(start_point, para_len):
-        if att_list[pos]>average_att and word_list[pos] not in q_wordset:
+        if att_list[pos]>average_att and word_list[pos] not in q_wordset:# and word_list[pos] not in string.punctuation:
             new_answer+=' '+word_list[pos]
             accu_att+=att_list[pos]+0.5*numpy.sum(extra_matrix[pos])
             new_answer=new_answer.strip()

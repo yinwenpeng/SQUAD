@@ -44,7 +44,7 @@ Dev  max_para_len:, 629 max_q_len: 33
 '''
 
 def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=500, emb_size=10, hidden_size=10,
-                    L2_weight=0.0001, para_len_limit=700, q_len_limit=40):
+                    L2_weight=0.0001, para_len_limit=100, q_len_limit=40):
 
     model_options = locals().copy()
     print "model options", model_options
@@ -68,7 +68,7 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=500, emb_size=1
 
     rand_values=random_value_normal((overall_vocab_size+1, emb_size), theano.config.floatX, numpy.random.RandomState(1234))
 #     rand_values[0]=numpy.array(numpy.zeros(emb_size),dtype=theano.config.floatX)
-    id2word = {y:x for x,y in overall_word2id.iteritems()}
+#     id2word = {y:x for x,y in overall_word2id.iteritems()}
 #     word2vec=load_word2vec()
 #     rand_values=load_word2vec_to_init(rand_values, id2word, word2vec)
     embeddings=theano.shared(value=rand_values, borrow=True)      
@@ -97,10 +97,10 @@ def evaluate_lenet5(learning_rate=0.5, n_epochs=2000, batch_size=500, emb_size=1
     paragraph_input = embeddings[paragraph.flatten()].reshape((paragraph.shape[0], paragraph.shape[1], emb_size)).transpose((0, 2,1)) # (batch_size, emb_size, maxparalen)
     concate_paragraph_input=T.concatenate([paragraph_input, norm_extraF.dimshuffle((0,2,1))], axis=1)
 
-    U1, W1, b1=create_GRU_para(rng, emb_size+3, hidden_size)
-    U1_b, W1_b, b1_b=create_GRU_para(rng, emb_size+3, hidden_size)
+    U1, W1, b1=create_GRU_para(rng, emb_size, hidden_size)
+    U1_b, W1_b, b1_b=create_GRU_para(rng, emb_size, hidden_size)
     paragraph_para=[U1, W1, b1, U1_b, W1_b, b1_b] 
-    paragraph_model=Bd_GRU_Batch_Tensor_Input_with_Mask(X=concate_paragraph_input, Mask=para_mask, hidden_dim=hidden_size,U=U1,W=W1,b=b1,Ub=U1_b,Wb=W1_b,bb=b1_b)
+    paragraph_model=Bd_GRU_Batch_Tensor_Input_with_Mask(X=paragraph_input, Mask=para_mask, hidden_dim=hidden_size,U=U1,W=W1,b=b1,Ub=U1_b,Wb=W1_b,bb=b1_b)
     para_reps=paragraph_model.output_tensor #(batch, emb, para_len)
 
 
