@@ -44,7 +44,7 @@ Dev  max_para_len:, 629 max_q_len: 33
 '''
 
 def evaluate_lenet5(learning_rate=0.1, n_epochs=2000, batch_size=500, emb_size=10, hidden_size=10,
-                    L2_weight=0.0001, para_len_limit=100, q_len_limit=40):
+                    L2_weight=0.0001, para_len_limit=400, q_len_limit=40):
 
     model_options = locals().copy()
     print "model options", model_options
@@ -102,8 +102,7 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=2000, batch_size=500, emb_size=1
     paragraph_para=[U1, W1, b1, U1_b, W1_b, b1_b] 
     paragraph_model=Bd_GRU_Batch_Tensor_Input_with_Mask(X=paragraph_input, Mask=para_mask, hidden_dim=hidden_size,U=U1,W=W1,b=b1,Ub=U1_b,Wb=W1_b,bb=b1_b)
     para_reps=paragraph_model.output_tensor #(batch, emb, para_len)
-
-
+    
  
     Qs_emb = embeddings[questions.flatten()].reshape((questions.shape[0], questions.shape[1], emb_size)).transpose((0, 2,1)) #(#questions, emb_size, maxsenlength)
     UQ, WQ, bQ=create_GRU_para(rng, emb_size, hidden_size)
@@ -112,6 +111,23 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=2000, batch_size=500, emb_size=1
     questions_model=Bd_GRU_Batch_Tensor_Input_with_Mask(X=Qs_emb, Mask=q_mask, hidden_dim=hidden_size, U=UQ,W=WQ,b=bQ, Ub=UQ_b, Wb=WQ_b, bb=bQ_b)
     questions_reps=questions_model.output_sent_rep_maxpooling.reshape((batch_size, 1, hidden_size)) #(batch, 2*out_size)
     #questions_reps=T.repeat(questions_reps, para_reps.shape[2], axis=1)
+    
+#use CNN for question modeling
+#     Qs_emb_tensor4=Qs_emb.dimshuffle((0,'x', 1,2)) #(batch_size, 1, emb+3, maxparalen)
+#     conv_W, conv_b=create_conv_para(rng, filter_shape=(hidden_size, 1, emb_size, 5))
+#     Q_conv_para=[conv_W, conv_b]
+#     conv_model = Conv_with_input_para(rng, input=Qs_emb_tensor4,
+#             image_shape=(batch_size, 1, emb_size, q_len_limit),
+#             filter_shape=(hidden_size, 1, emb_size, 5), W=conv_W, b=conv_b)
+#     conv_output=conv_model.narrow_conv_out.reshape((batch_size, hidden_size, q_len_limit-5+1)) #(batch, 1, hidden_size, maxparalen-1)
+#     gru_mask=(q_mask[:,:-4]*q_mask[:,1:-3]*q_mask[:,2:-2]*q_mask[:,3:-1]*q_mask[:,4:]).reshape((batch_size, 1, q_len_limit-5+1))
+#     masked_conv_output=conv_output*gru_mask
+#     questions_conv_reps=T.max(masked_conv_output, axis=2).reshape((batch_size, 1, hidden_size))
+
+
+
+
+
     
     new_labels=T.gt(labels[:,:-1]+labels[:,1:], 0.0)
     ConvGRU_1=Conv_then_GRU_then_Classify(rng, concate_paragraph_input, Qs_emb, para_len_limit, q_len_limit, emb_size+3, hidden_size, emb_size, 2, batch_size, para_mask, q_mask, new_labels, 2)
@@ -140,7 +156,7 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=2000, batch_size=500, emb_size=1
     transformed_q_reps=T.maximum(T.dot(questions_reps, norm_W_a1),0.0)
     #transformed_q_reps=T.repeat(transformed_q_reps, transformed_para_reps.shape[1], axis=1)    
     
-    add_both=0.5*(transformed_para_reps+transformed_q_reps)
+    add_both=transformed_para_reps+transformed_q_reps
 
 #     U_c, W_c, b_c=create_GRU_para(rng, hidden_size, hidden_size)
 #     U_c_b, W_c_b, b_c_b=create_GRU_para(rng, hidden_size, hidden_size)
@@ -155,7 +171,7 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=2000, batch_size=500, emb_size=1
     
     layer3=LogisticRegression(rng, input=prior_att.reshape((batch_size*prior_att.shape[1], hidden_size+3)), n_in=hidden_size+3, n_out=2, W=norm_U_a, b=LR_b)
     #error =layer3.negative_log_likelihood(labels.flatten()[valid_indices])
-    error = -T.mean(T.log(layer3.p_y_given_x)[valid_indices, labels.flatten()[valid_indices]])#[T.arange(y.shape[0]), y])
+    error = -T.sum(T.log(layer3.p_y_given_x)[valid_indices, labels.flatten()[valid_indices]])#[T.arange(y.shape[0]), y])
 
     distributions=layer3.p_y_given_x[:,-1].reshape((batch_size, para_mask.shape[1]))
     #distributions=layer3.y_pred.reshape((batch_size, para_mask.shape[1]))
@@ -208,7 +224,7 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=2000, batch_size=500, emb_size=1
 
     #params = layer3.params + layer2.params + layer1.params+ [conv_W, conv_b]
     params = [embeddings]+paragraph_para+Q_para+attention_paras+ConvGRU_1.paras
-    L2_reg =L2norm_paraList([embeddings,U1, W1, U1_b, W1_b,UQ, WQ, UQ_b, WQ_b, W_a1, W_a2, U_a])
+    L2_reg =L2norm_paraList([embeddings,U1, W1, U1_b, W1_b,UQ, WQ , UQ_b, WQ_b, W_a1, W_a2, U_a])
     #L2_reg = L2norm_paraList(params)
     cost=error+ConvGRU_1.error#+L2_weight*L2_reg
     
@@ -335,7 +351,9 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=2000, batch_size=500, emb_size=1
 #                         print 'distribution_matrix[q]:',distribution_matrix[q]
                         pred_ans=extract_ansList_attentionList(test_para_wordlist_list[q], distribution_matrix[q], np.asarray(paralist_extra_features[q], dtype=theano.config.floatX), sub_para_mask[q], Q_list_inword[q])
                         q_gold_ans_set=para_gold_ansset_list[q]
-                         
+#                         print test_para_wordlist_list[q]
+#                         print Q_list_inword[q]
+#                         print pred_ans.encode('utf8'), q_gold_ans_set
                         F1=MacroF1(pred_ans, q_gold_ans_set)
                         exact_match+=F1
 #                         match_amount=len(pred_ans_set & q_gold_ans_set)

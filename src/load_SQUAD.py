@@ -184,6 +184,9 @@ def  load_train(para_len_limit, q_len_limit):
 
                 para_len=answer_left_size+answer_len+answer_right_size
                 paragraph_wordlist=answer_left_wordlist+answer_q_wordlist+answer_right_wordlist
+#                 print 'paragraph_wordlist:', paragraph_wordlist
+#                 print 'question_wordlist:', question_wordlist
+#                 exit(0)
                 feature_matrix_q=extra_features(stop_words, paragraph_wordlist, question_wordlist)
                 paragraph_idlist=strs2ids(paragraph_wordlist, word2id)
                 #now, pad paragraph, question, feature_matrix, gold_label
@@ -668,7 +671,11 @@ def load_word2vec():
     print "==> word2vec is loaded"
     
     return word2vec        
-
+def overlap_degree(sent_wordlist, q_wordlist):
+    sent=set(sent_wordlist)
+    q=set(q_wordlist)
+    overlap=sent&q
+    return len(overlap)*1.0/len(q)
 def truncate_paragraph_by_question(word2vec, para_wordlist, q_wordlist, topN):
     #first convert para into sents
     zero_emb=list(numpy.zeros(300))
@@ -692,7 +699,9 @@ def truncate_paragraph_by_question(word2vec, para_wordlist, q_wordlist, topN):
     for i in range(len(sents_end_indices)-1):
         sent_emb=numpy.sum(numpy.asarray(para_wordembs[sents_end_indices[i]:sents_end_indices[i+1]]), axis=0)
         cosine=cosine_simi(q_emb, sent_emb)
-        sentid2cos[i]=cosine
+        sent_wordlist=para_wordlist[sents_end_indices[i]:sents_end_indices[i+1]]
+        overlap_simi=overlap_degree(sent_wordlist, q_wordlist)
+        sentid2cos[i]=cosine+overlap_simi
     sorted_x = sorted(sentid2cos.items(), key=operator.itemgetter(1), reverse=True)
     new_para_wordlist=[]
     for sentid, cos in sorted_x[:topN]:
