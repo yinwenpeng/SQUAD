@@ -50,19 +50,21 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=2000, batch_size=500, emb_size=1
     print "model options", model_options
     rootPath='/mounts/data/proj/wenpeng/Dataset/SQuAD/';
     rng = numpy.random.RandomState(23455)
-    train_para_list, train_Q_list, train_label_list, train_para_mask, train_mask, word2id, train_feature_matrixlist=load_train(para_len_limit, q_len_limit)
-    train_size=len(train_para_list)
-    if train_size!=len(train_Q_list) or train_size!=len(train_label_list) or train_size!=len(train_para_mask):
-        print 'train_size!=len(Q_list) or train_size!=len(label_list) or train_size!=len(para_mask)'
-        exit(0)
+#     train_para_list, train_Q_list, train_label_list, train_para_mask, train_mask, word2id, train_feature_matrixlist=load_train(para_len_limit, q_len_limit)
+#     exit(0)
+#     train_size=len(train_para_list)
+#     if train_size!=len(train_Q_list) or train_size!=len(train_label_list) or train_size!=len(train_para_mask):
+#         print 'train_size!=len(Q_list) or train_size!=len(label_list) or train_size!=len(para_mask)'
+#         exit(0)
 
-    test_para_list, test_Q_list, test_Q_list_word, test_para_mask, test_mask, overall_vocab_size, overall_word2id, test_text_list, q_ansSet_list, test_feature_matrixlist= load_dev_or_test(word2id, para_len_limit, q_len_limit)
+    test_para_list, test_Q_list, test_Q_list_word, test_para_mask, test_mask, overall_vocab_size, overall_word2id, test_text_list, q_ansSet_list, test_feature_matrixlist= load_dev_or_test({}, para_len_limit, q_len_limit)
+    exit(0)
     test_size=len(test_para_list)
     if test_size!=len(test_Q_list) or test_size!=len(test_mask) or test_size!=len(test_para_mask):
         print 'test_size!=len(test_Q_list) or test_size!=len(test_mask) or test_size!=len(test_para_mask)'
         exit(0)
 
-
+    
     
 
 
@@ -283,6 +285,7 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=2000, batch_size=500, emb_size=1
     test_batch_start=list(numpy.arange(n_test_batches)*batch_size)+[test_size-batch_size]
 
         
+    max_F1_acc=0.0
     max_exact_acc=0.0
     cost_i=0.0
     
@@ -314,6 +317,7 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=2000, batch_size=500, emb_size=1
                 past_time = time.time()
                   
                 exact_match=0.0
+                F1_match=0.0
                 q_amount=0
                 for test_para_id in test_batch_start:
                     distribution_matrix=test_model(
@@ -354,17 +358,22 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=2000, batch_size=500, emb_size=1
 #                         print test_para_wordlist_list[q]
 #                         print Q_list_inword[q]
 #                         print pred_ans.encode('utf8'), q_gold_ans_set
+                        if pred_ans in q_gold_ans_set:
+                            exact_match+=1
                         F1=MacroF1(pred_ans, q_gold_ans_set)
-                        exact_match+=F1
+                        F1_match+=F1
 #                         match_amount=len(pred_ans_set & q_gold_ans_set)
 # #                         print 'q_gold_ans_set:', q_gold_ans_set
 # #                         print 'pred_ans_set:', pred_ans_set
 #                         if match_amount>0:
 #                             exact_match+=match_amount*1.0/len(pred_ans_set)
+                F1_acc=F1_match/q_amount
                 exact_acc=exact_match/q_amount
+                if F1_acc> max_F1_acc:
+                    max_F1_acc=F1_acc
                 if exact_acc> max_exact_acc:
                     max_exact_acc=exact_acc
-                print 'current average F1:', exact_acc, '\t\tmax F1:', max_exact_acc
+                print 'current average F1:', F1_acc, '\t\tmax F1:', max_F1_acc, 'current  exact:', exact_acc, '\t\tmax exact_acc:', max_exact_acc
                         
 
 
