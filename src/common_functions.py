@@ -1,7 +1,7 @@
 import numpy
 import theano
 import theano.tensor as T
-# import theano.tensor.nlinalg
+import theano.tensor.nlinalg
 from theano.tensor.nnet import conv
 from cis.deep.utils.theano import debug_print
 from WPDefined import repeat_whole_matrix, repeat_whole_tensor
@@ -1419,10 +1419,10 @@ def Diversify_Reg(W):
     loss=((W.dot(W.T)-T.eye(n=W.shape[0], m=W.shape[0], k=0, dtype=theano.config.floatX))**2).sum()  
     return loss  
 
-# def Determinant(W):
-#     prod=W.dot(W.T)
-#     loss=-T.log(theano.tensor.nlinalg.Det()(prod))
-#     return loss
+def Determinant(W):
+    prod=W.dot(W.T)
+    loss=-T.log(theano.tensor.nlinalg.Det()(prod))
+    return loss
     
 def normalize_matrix(M):
     norm=T.sqrt(T.sum(T.sqr(M)))

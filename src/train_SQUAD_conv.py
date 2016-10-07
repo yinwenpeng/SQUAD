@@ -50,21 +50,19 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=2000, batch_size=500, emb_size=1
     print "model options", model_options
     rootPath='/mounts/data/proj/wenpeng/Dataset/SQuAD/';
     rng = numpy.random.RandomState(23455)
-#     train_para_list, train_Q_list, train_label_list, train_para_mask, train_mask, word2id, train_feature_matrixlist=load_train(para_len_limit, q_len_limit)
-#     exit(0)
-#     train_size=len(train_para_list)
-#     if train_size!=len(train_Q_list) or train_size!=len(train_label_list) or train_size!=len(train_para_mask):
-#         print 'train_size!=len(Q_list) or train_size!=len(label_list) or train_size!=len(para_mask)'
-#         exit(0)
+    train_para_list, train_Q_list, train_label_list, train_para_mask, train_mask, word2id, train_feature_matrixlist=load_train(para_len_limit, q_len_limit)
+    train_size=len(train_para_list)
+    if train_size!=len(train_Q_list) or train_size!=len(train_label_list) or train_size!=len(train_para_mask):
+        print 'train_size!=len(Q_list) or train_size!=len(label_list) or train_size!=len(para_mask)'
+        exit(0)
 
-    test_para_list, test_Q_list, test_Q_list_word, test_para_mask, test_mask, overall_vocab_size, overall_word2id, test_text_list, q_ansSet_list, test_feature_matrixlist= load_dev_or_test({}, para_len_limit, q_len_limit)
-    exit(0)
+    test_para_list, test_Q_list, test_Q_list_word, test_para_mask, test_mask, overall_vocab_size, overall_word2id, test_text_list, q_ansSet_list, test_feature_matrixlist= load_dev_or_test(word2id, para_len_limit, q_len_limit)
     test_size=len(test_para_list)
     if test_size!=len(test_Q_list) or test_size!=len(test_mask) or test_size!=len(test_para_mask):
         print 'test_size!=len(test_Q_list) or test_size!=len(test_mask) or test_size!=len(test_para_mask)'
         exit(0)
 
-    
+
     
 
 
@@ -112,6 +110,7 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=2000, batch_size=500, emb_size=1
     Q_para=[UQ, WQ, bQ, UQ_b, WQ_b, bQ_b] 
     questions_model=Bd_GRU_Batch_Tensor_Input_with_Mask(X=Qs_emb, Mask=q_mask, hidden_dim=hidden_size, U=UQ,W=WQ,b=bQ, Ub=UQ_b, Wb=WQ_b, bb=bQ_b)
     questions_reps=questions_model.output_sent_rep_maxpooling.reshape((batch_size, 1, hidden_size)) #(batch, 2*out_size)
+    questions_reps_tensor=questions_model.output_tensor
     #questions_reps=T.repeat(questions_reps, para_reps.shape[2], axis=1)
     
 #use CNN for question modeling
@@ -138,6 +137,19 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=2000, batch_size=500, emb_size=1
     ConvGRU_1_dis_leftpad=T.concatenate([padding_vec, ConvGRU_1_dis], axis=1) 
     ConvGRU_1_dis_rightpad=T.concatenate([ConvGRU_1_dis, padding_vec], axis=1) 
     ConvGRU_1_dis_into_unigram=0.5*(ConvGRU_1_dis_leftpad+ConvGRU_1_dis_rightpad)
+    
+    
+    #
+    def example_in_batch(para_matrix, q_matrix):
+        #assume both are (hidden, len)
+        transpose_para_matrix=para_matrix.T
+        interaction_matrix=T.dot(transpose_para_matrix, q_matrix) #(para_len, q_len)
+        norm_interaction_matrix=T.nnet.softmax(interaction_matrix)
+        return T.dot(q_matrix, norm_interaction_matrix.T) #(len, para_len)
+    batch_q_reps, updates = theano.scan(fn=example_in_batch,
+                                   outputs_info=None,
+                                   sequences=[para_reps, questions_reps_tensor])    #batch_q_reps (batch, len, para_len)
+    
        
     #attention distributions
     W_a1 = create_ensemble_para(rng, hidden_size, hidden_size)# init_weights((2*hidden_size, hidden_size))
@@ -155,7 +167,7 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=2000, batch_size=500, emb_size=1
     attention_paras=[W_a1, W_a2, U_a, LR_b]
     
     transformed_para_reps=T.maximum(T.dot(para_reps.transpose((0, 2,1)), norm_W_a2),0.0)
-    transformed_q_reps=T.maximum(T.dot(questions_reps, norm_W_a1),0.0)
+    transformed_q_reps=T.maximum(T.dot(batch_q_reps.transpose((0, 2,1)), norm_W_a1),0.0)
     #transformed_q_reps=T.repeat(transformed_q_reps, transformed_para_reps.shape[1], axis=1)    
     
     add_both=transformed_para_reps+transformed_q_reps
