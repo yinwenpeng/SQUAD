@@ -109,7 +109,7 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=2000, batch_size=500, emb_size=1
     UQ_b, WQ_b, bQ_b=create_GRU_para(rng, emb_size, hidden_size)
     Q_para=[UQ, WQ, bQ, UQ_b, WQ_b, bQ_b] 
     questions_model=Bd_GRU_Batch_Tensor_Input_with_Mask(X=Qs_emb, Mask=q_mask, hidden_dim=hidden_size, U=UQ,W=WQ,b=bQ, Ub=UQ_b, Wb=WQ_b, bb=bQ_b)
-    questions_reps=questions_model.output_sent_rep_maxpooling.reshape((batch_size, 1, hidden_size)) #(batch, 2*out_size)
+#     questions_reps=questions_model.output_sent_rep_maxpooling.reshape((batch_size, 1, hidden_size)) #(batch, 2*out_size)
     questions_reps_tensor=questions_model.output_tensor
     #questions_reps=T.repeat(questions_reps, para_reps.shape[2], axis=1)
     
