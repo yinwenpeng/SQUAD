@@ -173,9 +173,11 @@ def  load_train(para_len_limit, q_len_limit):
                 answer_q_wordlist=tokenize(answer_q)
                 answer_len=len(answer_q_wordlist)
                 answer_start_q=data['data'][i]['paragraphs'][j]['qas'][q]['answers'][0]['answer_start']
-                while answer_start_q>0 and paragraph[answer_start_q-1]!=' ':
-                    answer_start_q-=1
-                    
+#                 while answer_start_q>0 and paragraph[answer_start_q-1]!=' ':
+#                     answer_start_q-=1
+                if paragraph[answer_start_q]!=  answer_q[0]:
+                    print  'paragraph[answer_start_q]!=  answer_q[0]'
+                    print paragraph[answer_start_q], answer_q[0]                 
                     
                 writefile.write('D '+paragraph.strip().replace('\n', ' ').replace('\r', ' ')+'\n')
                 writefile.write('Q '+question_q.strip()+'\n')
