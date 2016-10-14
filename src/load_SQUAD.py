@@ -179,7 +179,7 @@ def  load_train(para_len_limit, q_len_limit):
                     print  'paragraph[answer_start_q]!=  answer_q[0]'
                     print paragraph[answer_start_q], answer_q[0]                 
                     
-                writefile.write('D '+paragraph.strip().replace('\n', ' ').replace('\r', ' ')+'\n')
+                writefile.write('D '+paragraph.replace('\n', ' ').replace('\r', ' ')+'\n')
                 writefile.write('Q '+question_q.strip()+'\n')
                 writefile.write('A '+answer_q+'\n')
                 writefile.write('P '+str(answer_start_q)+'\n')
