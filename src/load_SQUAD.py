@@ -123,10 +123,8 @@ def  load_train(para_len_limit, q_len_limit):
     
     word2id={}
 #     read_file=open(path+'train-v1.0.json', 'r')
-    with codecs.open(path+'train-v1.1.json','r', 'utf-8') as data_file:    
+    with open(path+'train-v1.1.json') as data_file:    
         data = json.load(data_file)
-    
-    writefile=codecs.open(path+'train-v1.1.hinrich.txt', 'w', 'utf-8')
 
 #     pprint(data['data'][0]['paragraphs'][0])
     doc_size=len(data['data'])
@@ -147,7 +145,6 @@ def  load_train(para_len_limit, q_len_limit):
             question_size_j=len(data['data'][i]['paragraphs'][j]['qas'])
 #             Q_size_list.append(question_size_j)
             paragraph=data['data'][i]['paragraphs'][j]['context']
-            
 #             print 'paragraph:', paragraph
 #             paragraph_wordlist=paragraph.strip().split()
 #             paragraph_idlist=strs2ids(paragraph_wordlist, word2id)
@@ -173,17 +170,8 @@ def  load_train(para_len_limit, q_len_limit):
                 answer_q_wordlist=tokenize(answer_q)
                 answer_len=len(answer_q_wordlist)
                 answer_start_q=data['data'][i]['paragraphs'][j]['qas'][q]['answers'][0]['answer_start']
-#                 while answer_start_q>0 and paragraph[answer_start_q-1]!=' ':
-#                     answer_start_q-=1
-                if paragraph[answer_start_q]!=  answer_q[0]:
-                    print  'paragraph[answer_start_q]!=  answer_q[0]'
-                    print paragraph[answer_start_q], answer_q[0]                 
-                    
-                writefile.write('D '+paragraph.replace('\n', ' ').replace('\r', ' ')+'\n')
-                writefile.write('Q '+question_q.strip()+'\n')
-                writefile.write('A '+answer_q+'\n')
-                writefile.write('P '+str(answer_start_q)+'\n')
-                    
+                while answer_start_q>0 and paragraph[answer_start_q-1]!=' ':
+                    answer_start_q-=1
                 answer_left=paragraph[:answer_start_q]
 #                 answer_left_wordlist=truncate_by_punct(tokenize(answer_left), True)
                 answer_left_wordlist=tokenize(answer_left)
@@ -266,7 +254,6 @@ def  load_train(para_len_limit, q_len_limit):
     print 'Load train set', para_size, 'paragraphs,', qa_size, 'question-answer pairs'
     print 'Train Vocab size:', len(word2id)
 #     exit(0)
-    writefile.close()
     return para_list, Q_list, label_list, para_mask, mask, word2id, feature_matrixlist
 
 def  load_dev_or_test(word2id, para_len_limit, q_len_limit):
@@ -274,9 +261,9 @@ def  load_dev_or_test(word2id, para_len_limit, q_len_limit):
 #     read_file=open(path+'train-v1.0.json', 'r')
     max_para_len=para_len_limit 
     max_Q_len = q_len_limit
-    with codecs.open(path+'dev-v1.1.json', 'r', 'utf-8') as data_file:    
+    with open(path+'dev-v1.1.json') as data_file:    
         data = json.load(data_file)
-    writefile=codecs.open(path+'dev-v1.1.hinrich.txt', 'w', 'utf-8')
+
 #     pprint(data['data'][0]['paragraphs'][0])
     doc_size=len(data['data'])
 #     print 'doc_size:', doc_size
@@ -326,23 +313,12 @@ def  load_dev_or_test(word2id, para_len_limit, q_len_limit):
                 q_len=len(question_idlist)
 #                 if len(question_idlist)>max_q_len:
 #                     max_q_len=len(question_idlist)
-                writefile.write('D '+paragraph.strip().replace('\n', ' ').replace('\r', ' ')+'\n')
-                writefile.write('Q '+question_q.strip()+'\n')
-                writefile.write('A ')
-#                 writefile.write('P '+str(answer_start_q)+'\n')                
+                
                 answer_no=len(data['data'][i]['paragraphs'][j]['qas'][q]['answers'])
                 q_ansSet=set()
                 for ans in range(answer_no):
                     answer_q=data['data'][i]['paragraphs'][j]['qas'][q]['answers'][ans]['text']
-                    writefile.write(answer_q+'\t')
                     q_ansSet.add(' '.join(tokenize(answer_q.strip())))
-                writefile.write('\n')
-                writefile.write('P ')
-                for ans in range(answer_no):
-                    answer_start_q=data['data'][i]['paragraphs'][j]['qas'][q]['answers'][ans]['answer_start']
-                    writefile.write(str(answer_start_q)+'\t')
-#                     q_ansSet.add(' '.join(tokenize(answer_q.strip())))
-                writefile.write('\n')
 #                     answer_len=len(answer_q.strip().split())
                  
 #                     answer_start_q=data['data'][i]['paragraphs'][j]['qas'][q]['answers'][ans]['answer_start']
@@ -358,8 +334,6 @@ def  load_dev_or_test(word2id, para_len_limit, q_len_limit):
 #                     print len(gold_label_q),len(label_sublist[-1])
 #                     exit(0)
 #                 label_sublist.append(gold_label_q)
-                
-
                 #now, pad paragraph, question, feature_matrix, gold_label
                 #first paragraph
                 pad_para_len=max_para_len-truncate_para_len
@@ -405,7 +379,6 @@ def  load_dev_or_test(word2id, para_len_limit, q_len_limit):
 #     print data['data'][0]['paragraphs'][0]
     print 'Load dev set', para_size, 'paragraphs,', qa_size, 'question-answer pairs'
     print 'Train+Dev Vocab size:', len(word2id)
-    writefile.close()
 #     print word2id
     return para_list, Q_list, Q_list_word, para_mask, mask, len(word2id), word2id, para_text_list, q_ansSet_list, feature_matrixlist
 

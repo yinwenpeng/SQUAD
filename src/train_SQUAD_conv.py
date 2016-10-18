@@ -20,7 +20,7 @@ from theano.tensor.signal import downsample
 from theano.tensor.nnet import conv
 from load_SQUAD import load_train, load_dev_or_test, extract_ansList_attentionList, extract_ansList_attentionList_maxlen5, MacroF1, load_word2vec, load_word2vec_to_init
 from word2embeddings.nn.util import zero_value, random_value_normal
-from common_functions import Conv_then_GRU_then_Classify, Bd_GRU_Batch_Tensor_Input_with_Mask, create_ensemble_para, create_GRU_para, normalize_matrix, create_conv_para, Matrix_Bit_Shift, Conv_with_input_para, L2norm_paraList
+from common_functions import Conv_then_GRU_then_Classify, create_LSTM_para, Bd_LSTM_Batch_Tensor_Input_with_Mask, Bd_GRU_Batch_Tensor_Input_with_Mask, create_ensemble_para, create_GRU_para, normalize_matrix, create_conv_para, Matrix_Bit_Shift, Conv_with_input_para, L2norm_paraList
 from random import shuffle
 from gru import BdGRU, GRULayer
 from utils_pg import *
@@ -102,7 +102,13 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=2000, batch_size=500, emb_size=1
     paragraph_para=[U1, W1, b1, U1_b, W1_b, b1_b] 
     paragraph_model=Bd_GRU_Batch_Tensor_Input_with_Mask(X=paragraph_input, Mask=para_mask, hidden_dim=hidden_size,U=U1,W=W1,b=b1,Ub=U1_b,Wb=W1_b,bb=b1_b)
     para_reps=paragraph_model.output_tensor #(batch, emb, para_len)
-    
+
+#     #LSTM
+#     fwd_LSTM_para_dict=create_LSTM_para(rng, emb_size, hidden_size)
+#     bwd_LSTM_para_dict=create_LSTM_para(rng, emb_size, hidden_size)
+#     paragraph_para=fwd_LSTM_para_dict.values()+ bwd_LSTM_para_dict.values()# .values returns a list of parameters
+#     paragraph_model=Bd_LSTM_Batch_Tensor_Input_with_Mask(paragraph_input, para_mask,  hidden_size, fwd_LSTM_para_dict, bwd_LSTM_para_dict)
+#     para_reps=paragraph_model.output_tensor
  
     Qs_emb = embeddings[questions.flatten()].reshape((questions.shape[0], questions.shape[1], emb_size)).transpose((0, 2,1)) #(#questions, emb_size, maxsenlength)
     UQ, WQ, bQ=create_GRU_para(rng, emb_size, hidden_size)
@@ -113,6 +119,13 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=2000, batch_size=500, emb_size=1
     questions_reps_tensor=questions_model.output_tensor
     #questions_reps=T.repeat(questions_reps, para_reps.shape[2], axis=1)
     
+#     #LSTM for questions
+#     fwd_LSTM_q_dict=create_LSTM_para(rng, emb_size, hidden_size)
+#     bwd_LSTM_q_dict=create_LSTM_para(rng, emb_size, hidden_size)
+#     Q_para=fwd_LSTM_q_dict.values()+ bwd_LSTM_q_dict.values()# .values returns a list of parameters
+#     questions_model=Bd_LSTM_Batch_Tensor_Input_with_Mask(Qs_emb, q_mask,  hidden_size, fwd_LSTM_q_dict, bwd_LSTM_q_dict)
+#     questions_reps_tensor=questions_model.output_tensor
+        
 #use CNN for question modeling
 #     Qs_emb_tensor4=Qs_emb.dimshuffle((0,'x', 1,2)) #(batch_size, 1, emb+3, maxparalen)
 #     conv_W, conv_b=create_conv_para(rng, filter_shape=(hidden_size, 1, emb_size, 5))
@@ -130,13 +143,13 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=2000, batch_size=500, emb_size=1
 
 
     
-    new_labels=T.gt(labels[:,:-1]+labels[:,1:], 0.0)
-    ConvGRU_1=Conv_then_GRU_then_Classify(rng, concate_paragraph_input, Qs_emb, para_len_limit, q_len_limit, emb_size+3, hidden_size, emb_size, 2, batch_size, para_mask, q_mask, new_labels, 2)
-    ConvGRU_1_dis=ConvGRU_1.masked_dis_inprediction
-    padding_vec = T.zeros((batch_size, 1), dtype=theano.config.floatX)
-    ConvGRU_1_dis_leftpad=T.concatenate([padding_vec, ConvGRU_1_dis], axis=1) 
-    ConvGRU_1_dis_rightpad=T.concatenate([ConvGRU_1_dis, padding_vec], axis=1) 
-    ConvGRU_1_dis_into_unigram=0.5*(ConvGRU_1_dis_leftpad+ConvGRU_1_dis_rightpad)
+#     new_labels=T.gt(labels[:,:-1]+labels[:,1:], 0.0)
+#     ConvGRU_1=Conv_then_GRU_then_Classify(rng, concate_paragraph_input, Qs_emb, para_len_limit, q_len_limit, emb_size+3, hidden_size, emb_size, 2, batch_size, para_mask, q_mask, new_labels, 2)
+#     ConvGRU_1_dis=ConvGRU_1.masked_dis_inprediction
+#     padding_vec = T.zeros((batch_size, 1), dtype=theano.config.floatX)
+#     ConvGRU_1_dis_leftpad=T.concatenate([padding_vec, ConvGRU_1_dis], axis=1) 
+#     ConvGRU_1_dis_rightpad=T.concatenate([ConvGRU_1_dis, padding_vec], axis=1) 
+#     ConvGRU_1_dis_into_unigram=0.5*(ConvGRU_1_dis_leftpad+ConvGRU_1_dis_rightpad)
     
     
     #
@@ -237,10 +250,10 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=2000, batch_size=500, emb_size=1
 
 
     #params = layer3.params + layer2.params + layer1.params+ [conv_W, conv_b]
-    params = [embeddings]+paragraph_para+Q_para+attention_paras+ConvGRU_1.paras
-    L2_reg =L2norm_paraList([embeddings,U1, W1, U1_b, W1_b,UQ, WQ , UQ_b, WQ_b, W_a1, W_a2, U_a])
+    params = [embeddings]+paragraph_para+Q_para+attention_paras#+ConvGRU_1.paras
+#     L2_reg =L2norm_paraList([embeddings,U1, W1, U1_b, W1_b,UQ, WQ , UQ_b, WQ_b, W_a1, W_a2, U_a])
     #L2_reg = L2norm_paraList(params)
-    cost=error+ConvGRU_1.error#+L2_weight*L2_reg
+    cost=error#+ConvGRU_1.error#+L2_weight*L2_reg
     
     
     accumulator=[]
@@ -303,8 +316,8 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=2000, batch_size=500, emb_size=1
     
     while (epoch < n_epochs) and (not done_looping):
         epoch = epoch + 1
-#         combined = zip(train_para_list,train_Q_list, train_label_list,train_para_mask, train_mask,  train_feature_matrixlist)
-#         random.shuffle(combined)
+        train_ids = range(train_size)
+        random.shuffle(train_ids)
         iter_accu=0
         for para_id in train_batch_start: 
             # iter means how many batches have been runed, taking into loop
@@ -315,12 +328,12 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=2000, batch_size=500, emb_size=1
 #             for i in range(batch_size):
 #                 print len(haha[i])
             cost_i+= train_model(
-                                np.asarray(train_para_list[para_id:para_id+batch_size], dtype='int32'), 
-                                      np.asarray(train_Q_list[para_id:para_id+batch_size], dtype='int32'), 
-                                      np.asarray(train_label_list[para_id:para_id+batch_size], dtype='int32'), 
-                                      np.asarray(train_para_mask[para_id:para_id+batch_size], dtype=theano.config.floatX),
-                                      np.asarray(train_mask[para_id:para_id+batch_size], dtype=theano.config.floatX),
-                                      np.asarray(train_feature_matrixlist[para_id:para_id+batch_size], dtype=theano.config.floatX))
+                                np.asarray([train_para_list[id] for id in train_ids[para_id:para_id+batch_size]], dtype='int32'), 
+                                      np.asarray([train_Q_list[id] for id in train_ids[para_id:para_id+batch_size]], dtype='int32'), 
+                                      np.asarray([train_label_list[id] for id in train_ids[para_id:para_id+batch_size]], dtype='int32'), 
+                                      np.asarray([train_para_mask[id] for id in train_ids[para_id:para_id+batch_size]], dtype=theano.config.floatX),
+                                      np.asarray([train_mask[id] for id in train_ids[para_id:para_id+batch_size]], dtype=theano.config.floatX),
+                                      np.asarray([train_feature_matrixlist[id] for id in train_ids[para_id:para_id+batch_size]], dtype=theano.config.floatX))
 
             #print iter
             if iter%10==0:
