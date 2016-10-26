@@ -43,9 +43,9 @@ Train  max_para_len:, 653 max_q_len: 40
 Dev  max_para_len:, 629 max_q_len: 33
 '''
 
-def evaluate_lenet5(learning_rate=0.1, n_epochs=2000, batch_size=200, emb_size=100, hidden_size=100,
+def evaluate_lenet5(learning_rate=0.1, n_epochs=2000, batch_size=500, test_batch_size=500, emb_size=300, hidden_size=300,
                     L2_weight=0.0001, margin=0.5,
-                    train_size=100000, test_size=1000, 
+                    train_size=1000000, test_size=1000, 
                     max_context_len=25, max_span_len=7, max_q_len=40):
 
     model_options = locals().copy()
@@ -64,9 +64,9 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=2000, batch_size=200, emb_size=1
 
     rand_values=random_value_normal((overall_vocab_size+1, emb_size), theano.config.floatX, np.random.RandomState(1234))
 #     rand_values[0]=np.array(np.zeros(emb_size),dtype=theano.config.floatX)
-#     id2word = {y:x for x,y in overall_word2id.iteritems()}
-#     word2vec=load_word2vec()
-#     rand_values=load_word2vec_to_init(rand_values, id2word, word2vec)
+    id2word = {y:x for x,y in word2id.iteritems()}
+    word2vec=load_word2vec()
+    rand_values=load_word2vec_to_init(rand_values, id2word, word2vec)
     embeddings=theano.shared(value=rand_values, borrow=True)
 
 
@@ -288,28 +288,55 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=2000, batch_size=200, emb_size=1
 
 
                 for test_pair_id in range(test_size):
+                    test_example_lefts=test_lefts[test_pair_id]
+                    test_example_lefts_mask=test_lefts_mask[test_pair_id]
+                    test_example_spans=test_spans[test_pair_id]
+                    test_example_spans_mask=test_spans_mask[test_pair_id]
+                    test_example_rights=test_rights[test_pair_id]
+                    test_example_rights_mask=test_rights_mask[test_pair_id]
+                    test_example_questions=test_questions[test_pair_id]
+                    test_example_questions_mask=test_questions_mask[test_pair_id]       
+                    test_example_candidates=test_candidates[test_pair_id]
                     
-                    test_example_size=len(test_lefts[test_pair_id])
+                    
+                    
+                    test_example_size=len(test_example_lefts)
 #                     print 'test_pair_id, test_example_size:', test_pair_id, test_example_size
-                    if test_example_size < batch_size:
-                        print 'test_example_size < batch_size:', test_example_size, batch_size
-                        exit(0)
-                    n_test_batches=test_example_size/batch_size
-                #     remain_test=test_size%batch_size
-                    test_batch_start=list(np.arange(n_test_batches)*batch_size)+[test_example_size-batch_size]
+                    if test_example_size < test_batch_size:
+                        #pad
+                        pad_size=test_batch_size-test_example_size
+                        test_example_lefts+=test_example_lefts[-1:]*pad_size
+                        test_example_lefts_mask+=test_example_lefts_mask[-1:]*pad_size
+                        test_example_spans+=test_example_spans[-1:]*pad_size
+                        test_example_spans_mask+=test_example_spans_mask[-1:]*pad_size
+                        test_example_rights+=test_example_rights[-1:]*pad_size
+                        test_example_rights_mask+=test_example_rights_mask[-1:]*pad_size
+                        test_example_questions+=test_example_questions[-1:]*pad_size
+                        test_example_questions_mask+=test_example_questions_mask[-1:]*pad_size 
+                        test_example_candidates+=test_example_candidates[-1:]*pad_size
+                        
+                        test_example_size=test_batch_size
+                    
+                                            
+                    n_test_batches=test_example_size/test_batch_size
+                    n_test_remain=test_example_size%test_batch_size
+                    if n_test_remain > 0:
+                        test_batch_start=list(np.arange(n_test_batches)*test_batch_size)+[test_example_size-test_batch_size]
+                    else:
+                        test_batch_start=list(np.arange(n_test_batches)*test_batch_size)
                     all_simi_list=[]
                     all_cand_list=[]
                     for test_para_id in test_batch_start:
                         simi_return_vector=test_model(
-                                    np.asarray(test_lefts[test_pair_id][test_para_id:test_para_id+batch_size], dtype='int32'),
-                                    np.asarray(test_lefts_mask[test_pair_id][test_para_id:test_para_id+batch_size], dtype=theano.config.floatX),
-                                    np.asarray(test_spans[test_pair_id][test_para_id:test_para_id+batch_size], dtype='int32'),
-                                    np.asarray(test_spans_mask[test_pair_id][test_para_id:test_para_id+batch_size], dtype=theano.config.floatX),
-                                    np.asarray(test_rights[test_pair_id][test_para_id:test_para_id+batch_size], dtype='int32'),
-                                    np.asarray(test_rights_mask[test_pair_id][test_para_id:test_para_id+batch_size], dtype=theano.config.floatX),
-                                    np.asarray(test_questions[test_pair_id][test_para_id:test_para_id+batch_size], dtype='int32'),
-                                    np.asarray(test_questions_mask[test_pair_id][test_para_id:test_para_id+batch_size], dtype=theano.config.floatX))
-                        candidate_list=test_candidates[test_pair_id][test_para_id:test_para_id+batch_size]
+                                    np.asarray(test_example_lefts[test_para_id:test_para_id+test_batch_size], dtype='int32'),
+                                    np.asarray(test_example_lefts_mask[test_para_id:test_para_id+test_batch_size], dtype=theano.config.floatX),
+                                    np.asarray(test_example_spans[test_para_id:test_para_id+test_batch_size], dtype='int32'),
+                                    np.asarray(test_example_spans_mask[test_para_id:test_para_id+test_batch_size], dtype=theano.config.floatX),
+                                    np.asarray(test_example_rights[test_para_id:test_para_id+test_batch_size], dtype='int32'),
+                                    np.asarray(test_example_rights_mask[test_para_id:test_para_id+test_batch_size], dtype=theano.config.floatX),
+                                    np.asarray(test_example_questions[test_para_id:test_para_id+test_batch_size], dtype='int32'),
+                                    np.asarray(test_example_questions_mask[test_para_id:test_para_id+test_batch_size], dtype=theano.config.floatX))
+                        candidate_list=test_example_candidates[test_para_id:test_para_id+test_batch_size]
                         all_simi_list+=list(simi_return_vector)
                         all_cand_list+=candidate_list
                     top1_cand=all_cand_list[np.argsort(all_simi_list)[-1]]
@@ -329,7 +356,7 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=2000, batch_size=200, emb_size=1
                 exact_acc=exact_match/test_size
                 if F1_acc> max_F1_acc:
                     max_F1_acc=F1_acc
-                    store_model_to_file(params)
+                    store_model_to_file(params, emb_size)
                 if exact_acc> max_exact_acc:
                     max_exact_acc=exact_acc
                 print 'current average F1:', F1_acc, '\t\tmax F1:', max_F1_acc, 'current  exact:', exact_acc, '\t\tmax exact_acc:', max_exact_acc
@@ -355,8 +382,8 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=2000, batch_size=200, emb_size=1
                           ' ran for %.2fm' % ((end_time - start_time) / 60.))
 
 
-def store_model_to_file(best_params):
-    save_file = open('/mounts/data/proj/wenpeng/Dataset/SQuAD/Best_Para', 'wb')  # this will overwrite current contents
+def store_model_to_file(best_params, mark):
+    save_file = open('/mounts/data/proj/wenpeng/Dataset/SQuAD/Best_Para_dim'+str(mark), 'wb')  # this will overwrite current contents
     for para in best_params:
         cPickle.dump(para.get_value(borrow=True), save_file, -1)  # the -1 is for HIGHEST_PROTOCOL
     save_file.close()
