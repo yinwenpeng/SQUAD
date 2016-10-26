@@ -367,7 +367,55 @@ class Word_by_Word_Attention_EntailmentPaper(object):
         
         H_star=T.tanh(W_p.dot(r[-1]+W_x.dot(self.H[:,-1])))
         self.output=H_star    
+class Bd_GRU_Batch_Tensor_Input_with_Mask_with_MatrixInit(object):
+    # Bidirectional GRU Layer.
+    def __init__(self, X, Mask, MatrixInit, hidden_dim, U, W, b, Ub, Wb, bb):
+        fwd = GRU_Batch_Tensor_Input_with_Mask_with_MatrixInit(X, Mask, MatrixInit, hidden_dim, U, W, b)
+        bwd = GRU_Batch_Tensor_Input_with_Mask_with_MatrixInit(X[:,:,::-1], Mask[:,::-1], MatrixInit, hidden_dim, Ub, Wb, bb)
 
+#         output_tensor=T.concatenate([fwd.output_tensor, bwd.output_tensor[:,:,::-1]], axis=1)
+        #for word level rep
+        output_tensor=fwd.output_tensor+bwd.output_tensor[:,:,::-1]
+        self.output_tensor=output_tensor+X[:,:output_tensor.shape[1],:] # add initialized emb
+        
+        #for final sentence rep
+#         sent_output_tensor=fwd.output_tensor+bwd.output_tensor
+#         self.output_tensor=output_tensor+X # add initialized emb
+#         self.output_sent_rep=self.output_tensor[:,:,-1]
+        self.output_sent_rep_maxpooling=fwd.output_tensor[:,:,-1]+bwd.output_tensor[:,:,-1]
+#         self.output_sent_rep_maxpooling=T.concatenate([fwd.output_tensor[:,:,-1], bwd.output_tensor[:,:,-1]], axis=1)
+
+class GRU_Batch_Tensor_Input_with_Mask_with_MatrixInit(object):
+    def __init__(self, X, Mask, MatrixInit, hidden_dim, U, W, b):
+        #now, X is (batch, emb_size, sentlength)
+        #Mask is a matrix with (batch, sentlength)
+        #MatrixInit (batch, hidden)
+        self.hidden_dim = hidden_dim
+#         self.bptt_truncate = bptt_truncate
+        self.M=Mask.T
+        
+        new_tensor=X.dimshuffle(2,1,0)
+        
+        def forward_prop_step(x_t, mask, s_t1_prev):            
+            # GRU Layer 1
+            z_t1 =T.nnet.sigmoid(U[0].dot(x_t) + W[0].dot(s_t1_prev) + T.repeat(b[0].reshape((hidden_dim,1)), X.shape[0], axis=1)) #maybe here has a bug, as b is vector while dot product is matrix
+            r_t1 = T.nnet.sigmoid(U[1].dot(x_t) + W[1].dot(s_t1_prev) + T.repeat(b[1].reshape((hidden_dim,1)), X.shape[0], axis=1))
+            c_t1 = T.tanh(U[2].dot(x_t) + W[2].dot(s_t1_prev * r_t1) + T.repeat(b[2].reshape((hidden_dim,1)), X.shape[0], axis=1))
+            s_t1 = (T.ones_like(z_t1) - z_t1) * c_t1 + z_t1 * s_t1_prev
+            
+            s_t1_m=s_t1*mask[None,:]+(1.0-mask[None,:])*s_t1_prev
+            
+            return s_t1_m
+        
+        s, updates = theano.scan(
+            forward_prop_step,
+            sequences=[new_tensor, self.M],
+            outputs_info=MatrixInit.T)
+        
+#         self.output_matrix=debug_print(s.transpose(), 'GRU_Matrix_Input.output_matrix')
+        self.output_tensor=s.dimshuffle(2,1,0)  #(batch, emb_size, sentlength) again
+
+        self.output_sent_rep=self.output_tensor[:,:,-1]
 class Bd_GRU_Batch_Tensor_Input_with_Mask(object):
     # Bidirectional GRU Layer.
     def __init__(self, X, Mask, hidden_dim, U, W, b, Ub, Wb, bb):
@@ -383,7 +431,7 @@ class Bd_GRU_Batch_Tensor_Input_with_Mask(object):
 #         sent_output_tensor=fwd.output_tensor+bwd.output_tensor
 #         self.output_tensor=output_tensor+X # add initialized emb
 #         self.output_sent_rep=self.output_tensor[:,:,-1]
-        self.output_sent_rep_maxpooling=fwd.output_tensor[:,:,-1]+bwd.output_tensor[:,:,-1]
+        self.output_sent_rep_maxpooling=fwd.output_tensor[:,:,-1]+bwd.output_tensor[:,:,-1] #(batch, hidden)
 #         self.output_sent_rep_maxpooling=T.concatenate([fwd.output_tensor[:,:,-1], bwd.output_tensor[:,:,-1]], axis=1)
 
 class GRU_Batch_Tensor_Input_with_Mask(object):
@@ -683,21 +731,16 @@ class Conv(object):
     def __init__(self, rng, input, filter_shape, image_shape):
         """
         Allocate a LeNetConvPoolLayer with shared variable internal parameters.
-
         :type rng: numpy.random.RandomState
         :param rng: a random number generator used to initialize weights
-
         :type input: theano.tensor.dtensor4
         :param input: symbolic image tensor, of shape image_shape
-
         :type filter_shape: tuple or list of length 4
         :param filter_shape: (number of filters, num input feature maps,
                               filter height,filter width)
-
         :type image_shape: tuple or list of length 4
         :param image_shape: (batch size, num input feature maps,
                              image height, image width)
-
         :type poolsize: tuple or list of length 2
         :param poolsize: the downsampling (pooling) factor (#rows,#cols)
         """
@@ -1627,3 +1670,31 @@ def dropout_layer(state_before, use_noise, trng):
                                         dtype=state_before.dtype)),
                          state_before * 0.5)
     return proj
+
+
+def attention_dot_prod_between_2tensors(tensor1, tensor2):
+    #assume both are (batch, hidden ,para_len), (batch, hidden ,q_len)
+    def example_in_batch(para_matrix, q_matrix):
+        #assume both are (hidden, para_len),  (hidden, q_len)
+        transpose_para_matrix=para_matrix.T  #(para_len, hidden)
+        interaction_matrix=T.dot(transpose_para_matrix, q_matrix) #(para_len, q_len)
+        norm_interaction_matrix=T.nnet.softmax(interaction_matrix)  #(para_len, q_len)
+        attended_para= T.dot(q_matrix, norm_interaction_matrix.T) #(hidden, q_len)*(q_len, para_len)=(hidden, para_len)
+        norm_interaction_matrix_T=T.nnet.softmax(interaction_matrix.T)#(q_len, para_len)
+        attended_q=T.dot(para_matrix, norm_interaction_matrix_T.T)  #(hidden, para_len)*(para_len, q_len)=(hidden, q_len)
+        return attended_para, attended_q
+    (attended_para_reps, attended_q_reps), _ = theano.scan(fn=example_in_batch,
+                                   outputs_info=None,
+                                   sequences=[tensor1, tensor2])    #batch_q_reps (batch, hidden, para_len)
+    return attended_para_reps, attended_q_reps
+
+def cosine_row_wise_twoMatrix(M1, M2):
+    #assume both (batch, hidden))
+    dot=T.sum(M1*M2, axis=1) #(batch)
+    norm1=T.sqrt(T.sum(M1**2, axis=1))
+    norm2=T.sqrt(T.sum(M2**2, axis=1))
+    return dot/(norm1*norm2)
+    
+    
+    
+    
