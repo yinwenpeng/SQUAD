@@ -20,7 +20,7 @@ from theano.tensor.signal import downsample
 from theano.tensor.nnet import conv
 from load_SQUAD import load_SQUAD_hinrich, macrof1, load_dev_hinrich, load_dev_or_test, extract_ansList_attentionList, extract_ansList_attentionList_maxlen5, MacroF1, load_word2vec, load_word2vec_to_init
 from word2embeddings.nn.util import zero_value, random_value_normal
-from common_functions import attention_dot_prod_between_2tensors, cosine_row_wise_twoMatrix, create_LSTM_para, Bd_LSTM_Batch_Tensor_Input_with_Mask, Bd_GRU_Batch_Tensor_Input_with_Mask, create_ensemble_para, create_GRU_para, normalize_matrix, create_conv_para, Matrix_Bit_Shift, Conv_with_input_para, L2norm_paraList
+from common_functions import load_model_from_file,store_model_to_file, attention_dot_prod_between_2tensors, cosine_row_wise_twoMatrix, create_LSTM_para, Bd_LSTM_Batch_Tensor_Input_with_Mask, Bd_GRU_Batch_Tensor_Input_with_Mask, create_ensemble_para, create_GRU_para, normalize_matrix, create_conv_para, Matrix_Bit_Shift, Conv_with_input_para, L2norm_paraList
 from random import shuffle
 from gru import BdGRU, GRULayer
 from utils_pg import *
@@ -45,8 +45,8 @@ Dev  max_para_len:, 629 max_q_len: 33
 
 def evaluate_lenet5(learning_rate=0.1, n_epochs=2000, batch_size=500, test_batch_size=500, emb_size=300, hidden_size=300,
                     L2_weight=0.0001, margin=0.5,
-                    train_size=1000000, test_size=1000, 
-                    max_context_len=25, max_span_len=7, max_q_len=40):
+                    train_size=4000000, test_size=1000, 
+                    max_context_len=25, max_span_len=7, max_q_len=40, max_EM=0.052):
 
     model_options = locals().copy()
     print "model options", model_options
@@ -57,9 +57,13 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=2000, batch_size=500, test_batch
 
 
     test_ground_truth,test_candidates,test_questions,test_questions_mask,test_lefts,test_lefts_mask,test_spans,test_spans_mask,test_rights,test_rights_mask=load_dev_hinrich(word2id, test_size, max_context_len, max_span_len, max_q_len)
-
+    
+    
+    
+    
 
     overall_vocab_size=len(word2id)
+    print 'vocab size:', overall_vocab_size
 
 
     rand_values=random_value_normal((overall_vocab_size+1, emb_size), theano.config.floatX, np.random.RandomState(1234))
@@ -91,15 +95,27 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=2000, batch_size=500, test_batch
     ######################
     print '... building the model'
 
+    U1, W1, b1=create_GRU_para(rng, emb_size, hidden_size)
+    U1_b, W1_b, b1_b=create_GRU_para(rng, emb_size, hidden_size)
+    GRU1_para=[U1, W1, b1, U1_b, W1_b, b1_b]
+    
+    U2, W2, b2=create_GRU_para(rng, hidden_size, hidden_size)
+    U2_b, W2_b, b2_b=create_GRU_para(rng, hidden_size, hidden_size)
+    GRU2_para=[U2, W2, b2, U2_b, W2_b, b2_b]
+    
+    W_a1 = create_ensemble_para(rng, hidden_size, hidden_size)# init_weights((2*hidden_size, hidden_size))
+    W_a2 = create_ensemble_para(rng, hidden_size, hidden_size)
+
+    attend_para=[W_a1, W_a2]
+    params = [embeddings]+GRU1_para+attend_para+GRU2_para
+#     load_model_from_file(rootPath+'Best_Para_dim'+str(emb_size), params)
 
     left_input = embeddings[left.flatten()].reshape((left.shape[0], left.shape[1], emb_size)).transpose((0, 2,1)) # (2*batch_size, emb_size, len_context)
     span_input = embeddings[span.flatten()].reshape((span.shape[0], span.shape[1], emb_size)).transpose((0, 2,1)) # (2*batch_size, emb_size, len_span)
     right_input = embeddings[right.flatten()].reshape((right.shape[0], right.shape[1], emb_size)).transpose((0, 2,1)) # (2*batch_size, emb_size, len_context)
     q_input = embeddings[q.flatten()].reshape((q.shape[0], q.shape[1], emb_size)).transpose((0, 2,1)) # (2*batch_size, emb_size, len_q)
 
-    U1, W1, b1=create_GRU_para(rng, emb_size, hidden_size)
-    U1_b, W1_b, b1_b=create_GRU_para(rng, emb_size, hidden_size)
-    GRU1_para=[U1, W1, b1, U1_b, W1_b, b1_b]
+
     left_model=Bd_GRU_Batch_Tensor_Input_with_Mask(X=left_input, Mask=left_mask, hidden_dim=hidden_size,U=U1,W=W1,b=b1,Ub=U1_b,Wb=W1_b,bb=b1_b)
     left_reps=left_model.output_tensor #(batch, emb, para_len)
 
@@ -122,10 +138,7 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=2000, batch_size=500, test_batch
 #     q_reps_via_right_reps=attention_dot_prod_between_2tensors(q_reps, right_reps)
 
     #combine
-    W_a1 = create_ensemble_para(rng, hidden_size, hidden_size)# init_weights((2*hidden_size, hidden_size))
-    W_a2 = create_ensemble_para(rng, hidden_size, hidden_size)
 
-    attend_para=[W_a1, W_a2]
 
     origin_W=normalize_matrix(W_a1)
     attend_W=normalize_matrix(W_a2)
@@ -153,9 +166,7 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=2000, batch_size=500, test_batch
     add_q_by_right=q_origin_reps+right_attend_q_reps
 
     #second GRU
-    U2, W2, b2=create_GRU_para(rng, hidden_size, hidden_size)
-    U2_b, W2_b, b2_b=create_GRU_para(rng, hidden_size, hidden_size)
-    GRU2_para=[U2, W2, b2, U2_b, W2_b, b2_b]
+
 
     add_left_model=Bd_GRU_Batch_Tensor_Input_with_Mask(X=add_left.dimshuffle(0,2,1), Mask=left_mask, hidden_dim=hidden_size,U=U2,W=W2,b=b2,Ub=U2_b,Wb=W2_b,bb=b2_b)
     add_left_reps=add_left_model.output_sent_rep_maxpooling #(batch, hidden_dim)
@@ -188,7 +199,7 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=2000, batch_size=500, test_batch
 
 
     #params = layer3.params + layer2.params + layer1.params+ [conv_W, conv_b]
-    params = [embeddings]+GRU1_para+attend_para+GRU2_para
+    
 #     L2_reg =L2norm_paraList([embeddings,U1, W1, U1_b, W1_b,UQ, WQ , UQ_b, WQ_b, W_a1, W_a2, U_a])
     #L2_reg = L2norm_paraList(params)
     cost=T.sum(raw_loss)#+ConvGRU_1.error#
@@ -239,8 +250,12 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=2000, batch_size=500, test_batch
 
     #para_list, Q_list, label_list, mask, vocab_size=load_train()
     n_train_batches=train_size/batch_size    #batch_size means how many pairs
-#     remain_train=train_size%batch_size
-    train_batch_start=list(np.arange(n_train_batches)*batch_size*2)+[train_size*2-batch_size*2] # always ou shu
+    remain_train=train_size%batch_size
+#     train_batch_start=list(np.arange(n_train_batches)*batch_size*2)+[train_size*2-batch_size*2] # always ou shu
+    if remain_train>0:
+        train_batch_start=list(np.arange(n_train_batches)*batch_size)+[train_size-batch_size] 
+    else:
+        train_batch_start=list(np.arange(n_train_batches)*batch_size)
 
 
 
@@ -248,34 +263,27 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=2000, batch_size=500, test_batch
     max_F1_acc=0.0
     max_exact_acc=0.0
     cost_i=0.0
-    # train_ids = list(np.arange(train_size)*2)
+    train_odd_ids = list(np.arange(train_size)*2)
     while (epoch < n_epochs) and (not done_looping):
         epoch = epoch + 1
-    # word2id,train_questions,train_questions_mask,train_lefts,train_lefts_mask,train_spans,train_spans_mask,train_rights,train_rights_mask=load_SQUAD_hinrich(train_size, max_context_len, max_span_len, max_q_len)
-    #
-    #
-    #
-    # test_ground_truth,test_questions,test_questions_mask,test_lefts,test_lefts_mask,test_spans,test_spans_mask,test_rights,test_rights_mask=load_dev_hinrich(word2id, test_size, max_context_len, max_span_len, max_q_len)
-
-        # random.shuffle(train_ids)
+        random.shuffle(train_odd_ids)
         iter_accu=0
         for para_id in train_batch_start:
             # iter means how many batches have been runed, taking into loop
             iter = (epoch - 1) * n_train_batches + iter_accu +1
             iter_accu+=1
-#             haha=para_mask[para_id:para_id+batch_size]
-#             print haha
-#             for i in range(batch_size):
-#                 print len(haha[i])
+            train_id_list=[[train_odd_id, train_odd_id+1] for train_odd_id in train_odd_ids[para_id:para_id+batch_size]]
+            train_id_list=sum(train_id_list,[])
+#             print train_id_list
             cost_i+= train_model(
-                                np.asarray(train_lefts[para_id:para_id+2*batch_size], dtype='int32'),
-                                np.asarray(train_lefts_mask[para_id:para_id+2*batch_size], dtype=theano.config.floatX),
-                                np.asarray(train_spans[para_id:para_id+2*batch_size], dtype='int32'),
-                                np.asarray(train_spans_mask[para_id:para_id+2*batch_size], dtype=theano.config.floatX),
-                                np.asarray(train_rights[para_id:para_id+2*batch_size], dtype='int32'),
-                                np.asarray(train_rights_mask[para_id:para_id+2*batch_size], dtype=theano.config.floatX),
-                                np.asarray(train_questions[para_id:para_id+2*batch_size], dtype='int32'),
-                                np.asarray(train_questions_mask[para_id:para_id+2*batch_size], dtype=theano.config.floatX))
+                                np.asarray([train_lefts[id] for id in train_id_list], dtype='int32'),
+                                np.asarray([train_lefts_mask[id] for id in train_id_list], dtype=theano.config.floatX),
+                                np.asarray([train_spans[id] for id in train_id_list], dtype='int32'),
+                                np.asarray([train_spans_mask[id] for id in train_id_list], dtype=theano.config.floatX),
+                                np.asarray([train_rights[id] for id in train_id_list], dtype='int32'),
+                                np.asarray([train_rights_mask[id] for id in train_id_list], dtype=theano.config.floatX),
+                                np.asarray([train_questions[id] for id in train_id_list], dtype='int32'),
+                                np.asarray([train_questions_mask[id] for id in train_id_list], dtype=theano.config.floatX))
 
             #print iter
             if iter%100==0:
@@ -340,7 +348,7 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=2000, batch_size=500, test_batch
                         all_simi_list+=list(simi_return_vector)
                         all_cand_list+=candidate_list
                     top1_cand=all_cand_list[np.argsort(all_simi_list)[-1]]
-
+#                     print top1_cand, test_ground_truth[test_pair_id]
 
                     if top1_cand == test_ground_truth[test_pair_id]:
                         exact_match+=1
@@ -356,9 +364,12 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=2000, batch_size=500, test_batch
                 exact_acc=exact_match/test_size
                 if F1_acc> max_F1_acc:
                     max_F1_acc=F1_acc
-                    store_model_to_file(params, emb_size)
+#                     store_model_to_file(params, emb_size)
                 if exact_acc> max_exact_acc:
                     max_exact_acc=exact_acc
+                    if max_exact_acc > max_EM:
+                        store_model_to_file(rootPath+'Best_Para_'+str(max_EM), params)
+                        print 'Finished storing best  params at:', max_exact_acc
                 print 'current average F1:', F1_acc, '\t\tmax F1:', max_F1_acc, 'current  exact:', exact_acc, '\t\tmax exact_acc:', max_exact_acc
 
 
@@ -382,12 +393,6 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=2000, batch_size=500, test_batch
                           ' ran for %.2fm' % ((end_time - start_time) / 60.))
 
 
-def store_model_to_file(best_params, mark):
-    save_file = open('/mounts/data/proj/wenpeng/Dataset/SQuAD/Best_Para_dim'+str(mark), 'wb')  # this will overwrite current contents
-    for para in best_params:
-        cPickle.dump(para.get_value(borrow=True), save_file, -1)  # the -1 is for HIGHEST_PROTOCOL
-    save_file.close()
-    print 'Best para stored'
 
 
 if __name__ == '__main__':
