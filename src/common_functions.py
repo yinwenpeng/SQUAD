@@ -1,13 +1,13 @@
 import numpy
 import theano
 import theano.tensor as T
-import theano.tensor.nlinalg
 from theano.tensor.nnet import conv
 from cis.deep.utils.theano import debug_print
 from WPDefined import repeat_whole_matrix, repeat_whole_tensor
 from logistic_sgd import LogisticRegression
 import numpy as np
 from scipy.spatial.distance import cosine
+import cPickle
 
 def create_AttentionMatrix_para(rng, n_in, n_out):
 
@@ -1558,10 +1558,7 @@ def Diversify_Reg(W):
     loss=((W.dot(W.T)-T.eye(n=W.shape[0], m=W.shape[0], k=0, dtype=theano.config.floatX))**2).sum()  
     return loss  
 
-def Determinant(W):
-    prod=W.dot(W.T)
-    loss=-T.log(theano.tensor.nlinalg.Det()(prod))
-    return loss
+
     
 def normalize_matrix(M):
     norm=T.sqrt(T.sum(T.sqr(M)))
@@ -1694,7 +1691,19 @@ def cosine_row_wise_twoMatrix(M1, M2):
     norm1=T.sqrt(T.sum(M1**2, axis=1))
     norm2=T.sqrt(T.sum(M2**2, axis=1))
     return dot/(norm1*norm2)
+def load_model_from_file(file_path, params):
+    #save_file = open('/mounts/data/proj/wenpeng/Dataset/WikiQACorpus/Best_Conv_Para')
+    save_file = open(file_path)
+#     save_file = open('/mounts/data/proj/wenpeng/Dataset/WikiQACorpus/Best_Conv_Para_at_22')
     
-    
+    for para in params:
+        para.set_value(cPickle.load(save_file), borrow=True)
+    print 'model loaded successfully'
+    save_file.close()    
+def store_model_to_file(file_path, best_params):
+    save_file = open(file_path, 'wb')  # this will overwrite current contents
+    for para in best_params:
+        cPickle.dump(para.get_value(borrow=True), save_file, -1)  # the -1 is for HIGHEST_PROTOCOL
+    save_file.close()    
     
     

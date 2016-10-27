@@ -764,6 +764,8 @@ def load_SQUAD_hinrich(example_no_limit, max_context_len, max_span_len, max_q_le
     for line in readfile:
         if line_co % 11==0 and line_co > 0:
             example_co+=1
+#             if example_co%1000000==0:
+#                 print example_co
             if example_co == example_no_limit:
                 break
         if line_co%11==3 or line_co%11==4 or line_co%11==8:
@@ -797,10 +799,12 @@ def load_SQUAD_hinrich(example_no_limit, max_context_len, max_span_len, max_q_le
                 rights_mask.append(right_mask)
         line_co+=1
         # print line_co
+    if example_co != example_no_limit:
+        example_co+=1
     readfile.close()
     print 'load', example_co, 'train pairs finished'
-    if len(questions)!=2*example_co:
-        print 'len(questions)!=2*example_co:', len(questions), 2*example_co
+    if len(questions)!=2*example_no_limit:
+        print 'len(questions)!=2*example_co:', len(questions), example_no_limit
         exit(0)
     return     word2id,questions,questions_mask,lefts,lefts_mask,spans,spans_mask,rights,rights_mask
 
@@ -931,8 +935,8 @@ def load_dev_hinrich(word2id, example_no_limit, max_context_len, max_span_len, m
         # print line_co, 'line_co'
     readfile.close()
     print 'load', example_co, 'question-paragraph pairs finished'
-    if len(all_ground_truth)!=example_co or len(all_questions)!=example_co or len(all_lefts)!=example_co or len(all_spans)!=example_co or len(all_rights)!=example_co:
-        print 'len(all_ground_truth)!=example_co or len(all_questions)!=example_co:', len(all_ground_truth), example_co , len(all_questions)
+    if len(all_ground_truth)!=example_no_limit or len(all_questions)!=example_no_limit or len(all_lefts)!=example_no_limit or len(all_spans)!=example_no_limit or len(all_rights)!=example_no_limit:
+        print 'len(all_ground_truth)!=example_co or len(all_questions)!=example_co:', len(all_ground_truth), example_no_limit , len(all_questions)
         exit(0)
 
     return     all_ground_truth,all_candidates, all_questions,all_questions_mask,all_lefts,all_lefts_mask,all_spans,all_spans_mask,all_rights,all_rights_mask
