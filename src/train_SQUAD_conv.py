@@ -20,7 +20,7 @@ from theano.tensor.signal import downsample
 from theano.tensor.nnet import conv
 from load_SQUAD import load_train, load_dev_or_test, extract_ansList_attentionList, extract_ansList_attentionList_maxlen5, MacroF1, load_word2vec, load_word2vec_to_init
 from word2embeddings.nn.util import zero_value, random_value_normal
-from common_functions import Conv_then_GRU_then_Classify, create_LSTM_para, Bd_LSTM_Batch_Tensor_Input_with_Mask, Bd_GRU_Batch_Tensor_Input_with_Mask, create_ensemble_para, create_GRU_para, normalize_matrix, create_conv_para, Matrix_Bit_Shift, Conv_with_input_para, L2norm_paraList
+from common_functions import Conv_then_GRU_then_Classify, load_model_from_file, store_model_to_file, create_LSTM_para, Bd_LSTM_Batch_Tensor_Input_with_Mask, Bd_GRU_Batch_Tensor_Input_with_Mask, create_ensemble_para, create_GRU_para, normalize_matrix, create_conv_para, Matrix_Bit_Shift, Conv_with_input_para, L2norm_paraList
 from random import shuffle
 from gru import BdGRU, GRULayer
 from utils_pg import *
@@ -43,8 +43,8 @@ Train  max_para_len:, 653 max_q_len: 40
 Dev  max_para_len:, 629 max_q_len: 33
 '''
 
-def evaluate_lenet5(learning_rate=0.1, n_epochs=2000, batch_size=500, emb_size=10, hidden_size=10,
-                    L2_weight=0.0001, para_len_limit=400, q_len_limit=40):
+def evaluate_lenet5(learning_rate=0.01, n_epochs=2000, batch_size=100, emb_size=10, hidden_size=10,
+                    L2_weight=0.0001, para_len_limit=400, q_len_limit=40, max_EM=0.217545454546):
 
     model_options = locals().copy()
     print "model options", model_options
@@ -92,14 +92,30 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=2000, batch_size=500, emb_size=1
     
     norm_extraF=normalize_matrix(extraF)
 
-
-
-    paragraph_input = embeddings[paragraph.flatten()].reshape((paragraph.shape[0], paragraph.shape[1], emb_size)).transpose((0, 2,1)) # (batch_size, emb_size, maxparalen)
-    concate_paragraph_input=T.concatenate([paragraph_input, norm_extraF.dimshuffle((0,2,1))], axis=1)
-
     U1, W1, b1=create_GRU_para(rng, emb_size, hidden_size)
     U1_b, W1_b, b1_b=create_GRU_para(rng, emb_size, hidden_size)
     paragraph_para=[U1, W1, b1, U1_b, W1_b, b1_b] 
+
+    UQ, WQ, bQ=create_GRU_para(rng, emb_size, hidden_size)
+    UQ_b, WQ_b, bQ_b=create_GRU_para(rng, emb_size, hidden_size)
+    Q_para=[UQ, WQ, bQ, UQ_b, WQ_b, bQ_b] 
+
+    W_a1 = create_ensemble_para(rng, hidden_size, hidden_size)# init_weights((2*hidden_size, hidden_size))
+    W_a2 = create_ensemble_para(rng, hidden_size, hidden_size)
+    U_a = create_ensemble_para(rng, 2, hidden_size+3) # 3 extra features
+    LR_b = theano.shared(value=numpy.zeros((2,),
+                                                 dtype=theano.config.floatX),  # @UndefinedVariable
+                               name='LR_b', borrow=True)
+     
+    attention_paras=[W_a1, W_a2, U_a, LR_b]  
+    params = [embeddings]+paragraph_para+Q_para+attention_paras
+    
+    load_model_from_file(rootPath+'Best_Paras_conv_0.217545454545', params)
+    
+    paragraph_input = embeddings[paragraph.flatten()].reshape((paragraph.shape[0], paragraph.shape[1], emb_size)).transpose((0, 2,1)) # (batch_size, emb_size, maxparalen)
+    concate_paragraph_input=T.concatenate([paragraph_input, norm_extraF.dimshuffle((0,2,1))], axis=1)
+
+
     paragraph_model=Bd_GRU_Batch_Tensor_Input_with_Mask(X=paragraph_input, Mask=para_mask, hidden_dim=hidden_size,U=U1,W=W1,b=b1,Ub=U1_b,Wb=W1_b,bb=b1_b)
     para_reps=paragraph_model.output_tensor #(batch, emb, para_len)
 
@@ -111,9 +127,7 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=2000, batch_size=500, emb_size=1
 #     para_reps=paragraph_model.output_tensor
  
     Qs_emb = embeddings[questions.flatten()].reshape((questions.shape[0], questions.shape[1], emb_size)).transpose((0, 2,1)) #(#questions, emb_size, maxsenlength)
-    UQ, WQ, bQ=create_GRU_para(rng, emb_size, hidden_size)
-    UQ_b, WQ_b, bQ_b=create_GRU_para(rng, emb_size, hidden_size)
-    Q_para=[UQ, WQ, bQ, UQ_b, WQ_b, bQ_b] 
+
     questions_model=Bd_GRU_Batch_Tensor_Input_with_Mask(X=Qs_emb, Mask=q_mask, hidden_dim=hidden_size, U=UQ,W=WQ,b=bQ, Ub=UQ_b, Wb=WQ_b, bb=bQ_b)
 #     questions_reps=questions_model.output_sent_rep_maxpooling.reshape((batch_size, 1, hidden_size)) #(batch, 2*out_size)
     questions_reps_tensor=questions_model.output_tensor
@@ -161,25 +175,18 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=2000, batch_size=500, emb_size=1
         return T.dot(q_matrix, norm_interaction_matrix.T) #(len, para_len)
     batch_q_reps, updates = theano.scan(fn=example_in_batch,
                                    outputs_info=None,
-                                   sequences=[para_reps, questions_reps_tensor])    #batch_q_reps (batch, len, para_len)
+                                   sequences=[para_reps, questions_reps_tensor])    #batch_q_reps (batch, hidden, para_len)
     
        
     #attention distributions
-    W_a1 = create_ensemble_para(rng, hidden_size, hidden_size)# init_weights((2*hidden_size, hidden_size))
-    W_a2 = create_ensemble_para(rng, hidden_size, hidden_size)
-    U_a = create_ensemble_para(rng, 2, hidden_size+3) # 3 extra features
-    
+  
     norm_W_a1=normalize_matrix(W_a1)
     norm_W_a2=normalize_matrix(W_a2)
     norm_U_a=normalize_matrix(U_a)
 
-    LR_b = theano.shared(value=numpy.zeros((2,),
-                                                 dtype=theano.config.floatX),  # @UndefinedVariable
-                               name='LR_b', borrow=True)
-     
-    attention_paras=[W_a1, W_a2, U_a, LR_b]
+
     
-    transformed_para_reps=T.maximum(T.dot(para_reps.transpose((0, 2,1)), norm_W_a2),0.0)
+    transformed_para_reps=T.maximum(T.dot(para_reps.transpose((0, 2,1)), norm_W_a2),0.0)   #relu
     transformed_q_reps=T.maximum(T.dot(batch_q_reps.transpose((0, 2,1)), norm_W_a1),0.0)
     #transformed_q_reps=T.repeat(transformed_q_reps, transformed_para_reps.shape[1], axis=1)    
     
@@ -250,10 +257,10 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=2000, batch_size=500, emb_size=1
 
 
     #params = layer3.params + layer2.params + layer1.params+ [conv_W, conv_b]
-    params = [embeddings]+paragraph_para+Q_para+attention_paras#+ConvGRU_1.paras
-#     L2_reg =L2norm_paraList([embeddings,U1, W1, U1_b, W1_b,UQ, WQ , UQ_b, WQ_b, W_a1, W_a2, U_a])
+    
+    L2_reg =L2norm_paraList([embeddings,U1, W1, U1_b, W1_b,UQ, WQ , UQ_b, WQ_b, W_a1, W_a2, U_a])
     #L2_reg = L2norm_paraList(params)
-    cost=error#+ConvGRU_1.error#+L2_weight*L2_reg
+    cost=error#+ConvGRU_1.error#
     
     
     accumulator=[]
@@ -313,10 +320,10 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=2000, batch_size=500, emb_size=1
     max_F1_acc=0.0
     max_exact_acc=0.0
     cost_i=0.0
-    
+    train_ids = range(train_size)
     while (epoch < n_epochs) and (not done_looping):
         epoch = epoch + 1
-        train_ids = range(train_size)
+        
         random.shuffle(train_ids)
         iter_accu=0
         for para_id in train_batch_start: 
@@ -398,6 +405,9 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=2000, batch_size=500, emb_size=1
                     max_F1_acc=F1_acc
                 if exact_acc> max_exact_acc:
                     max_exact_acc=exact_acc
+                    if max_exact_acc > max_EM:
+                        store_model_to_file(rootPath+'Best_Paras_conv_'+str(max_exact_acc), params)
+                        print 'Finished storing best  params at:', max_exact_acc  
                 print 'current average F1:', F1_acc, '\t\tmax F1:', max_F1_acc, 'current  exact:', exact_acc, '\t\tmax exact_acc:', max_exact_acc
                         
 
@@ -421,11 +431,7 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=2000, batch_size=500, emb_size=1
                           ' ran for %.2fm' % ((end_time - start_time) / 60.))
 
 
-def store_model_to_file(best_params):
-    save_file = open('/mounts/data/proj/wenpeng/Dataset/snli_1.0//Best_Conv_Para', 'wb')  # this will overwrite current contents
-    for para in best_params:           
-        cPickle.dump(para.get_value(borrow=True), save_file, -1)  # the -1 is for HIGHEST_PROTOCOL
-    save_file.close()
+
 
 def cosine(vec1, vec2):
     vec1=debug_print(vec1, 'vec1')

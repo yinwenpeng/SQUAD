@@ -750,7 +750,7 @@ def pad_idlist(idlist, maxlen):
 def load_SQUAD_hinrich(example_no_limit, max_context_len, max_span_len, max_q_len):
     line_co=0
     example_co=0
-    readfile=open('/mounts/work/hs/yin/20161025/squadnewtrn.txt', 'r')
+    readfile=open('/mounts/work/hs/yin/20161030/squadnewtrn.txt', 'r')
     word2id={}
     word2id['UNK']=1 # use it to pad zero context
     questions=[]
@@ -811,7 +811,7 @@ def load_SQUAD_hinrich(example_no_limit, max_context_len, max_span_len, max_q_le
 def load_dev_hinrich(word2id, example_no_limit, max_context_len, max_span_len, max_q_len):
     line_co=0
     example_co=0
-    readfile=open('/mounts/work/hs/yin/20161025/squadnewdev.txt', 'r')
+    readfile=open('/mounts/work/hs/yin/20161030/squadnewdev.txt', 'r')
 #     word2id={}
 #     word2id['UNK']=1 # use it to pad zero context
     all_ground_truth=[] # is a list of string
@@ -820,7 +820,7 @@ def load_dev_hinrich(word2id, example_no_limit, max_context_len, max_span_len, m
     all_lefts=[]
     all_lefts_mask=[]
     all_spans=[]
-    all_candidates=[]
+    all_candidates_f1=[]
     all_spans_mask=[]
     all_rights=[]
     all_rights_mask=[]
@@ -829,15 +829,15 @@ def load_dev_hinrich(word2id, example_no_limit, max_context_len, max_span_len, m
     questions_mask=[]
     lefts=[]
     lefts_mask=[]
-    spans=[]
-    candidates=[]
+    spans=[]  #id list
+    candidates_f1=[]  # string for the candidate
     spans_mask=[]
     rights=[]
     rights_mask=[]
     old_question='UNK'
     new_example_flag=False
     for line in readfile:
-        if line_co%11==0 or line_co%11==3 or line_co%11==4 or line_co%11==5  or line_co%11==6 or line_co%11==8:
+        if line_co%11==0 or line_co%11==3 or line_co%11==4 or line_co%11==5  or line_co%11==6:
             line_co+=1
             continue
         else:
@@ -847,16 +847,16 @@ def load_dev_hinrich(word2id, example_no_limit, max_context_len, max_span_len, m
                     old_question=q_str
                     new_example_flag=True
                     if len(questions)>0:
-                        if len(questions)!=len(lefts) or len(questions)!=len(spans) or len(questions)!=len(rights) or len(questions)!=len(candidates):
+                        if len(questions)!=len(lefts) or len(questions)!=len(spans) or len(questions)!=len(rights) or len(questions)!=len(candidates_f1):
                             print 'len(questions)!=len(lefts) or len(questions)!=len(spans) or len(questions)!=len(rights) or len(questions)!=len(candidates)'
-                            print len(questions), len(lefts), len(spans), len(rights), len(candidates)
+                            print len(questions), len(lefts), len(spans), len(rights), len(candidates_f1)
                             exit(0)
                         all_questions.append(questions)
                         all_questions_mask.append(questions_mask)
                         all_lefts.append(lefts)
                         all_lefts_mask.append(lefts_mask)
                         all_spans.append(spans)
-                        all_candidates.append(candidates)
+                        all_candidates_f1.append(candidates_f1)
                         all_spans_mask.append(spans_mask)
                         all_rights.append(rights)
                         all_rights_mask.append(rights_mask)
@@ -881,7 +881,7 @@ def load_dev_hinrich(word2id, example_no_limit, max_context_len, max_span_len, m
                             lefts=[]
                             lefts_mask=[]
                             spans=[]
-                            candidates=[]
+                            candidates_f1=[]
                             spans_mask=[]
                             rights=[]
                             rights_mask=[]
@@ -909,8 +909,11 @@ def load_dev_hinrich(word2id, example_no_limit, max_context_len, max_span_len, m
                 span_example=strlist_2_wordidlist_noIncrease(line_str.split()[1:], word2id)
                 pad_span_example, span_mask=pad_idlist(span_example, max_span_len)
                 spans.append(pad_span_example)
-                candidates.append(line_str[2:]) #the candidate string
+#                 candidates.append(line_str[2:]) #the candidate string
                 spans_mask.append(span_mask)
+            elif line_co%11==8: # f1
+                candidates_f1.append(float(line.strip()))
+                
             elif line_co%11==9:#left
                 left_str=line.strip()
                 if len(left_str)==0:
@@ -939,7 +942,7 @@ def load_dev_hinrich(word2id, example_no_limit, max_context_len, max_span_len, m
         print 'len(all_ground_truth)!=example_co or len(all_questions)!=example_co:', len(all_ground_truth), example_no_limit , len(all_questions)
         exit(0)
 
-    return     all_ground_truth,all_candidates, all_questions,all_questions_mask,all_lefts,all_lefts_mask,all_spans,all_spans_mask,all_rights,all_rights_mask
+    return     all_ground_truth,all_candidates_f1, all_questions,all_questions_mask,all_lefts,all_lefts_mask,all_spans,all_spans_mask,all_rights,all_rights_mask
 
 
 if __name__ == '__main__':
