@@ -944,6 +944,165 @@ def load_dev_hinrich(word2id, example_no_limit, max_context_len, max_span_len, m
 
     return     all_ground_truth,all_candidates_f1, all_questions,all_questions_mask,all_lefts,all_lefts_mask,all_spans,all_spans_mask,all_rights,all_rights_mask
 
+def  load_train_google(para_len_limit, q_len_limit):
+    max_para_len=para_len_limit
+    max_Q_len = q_len_limit
+
+    word2id={}
+#     read_file=open(path+'train-v1.0.json', 'r')
+    with open(path+'train-v1.1.json') as data_file:
+        data = json.load(data_file)
+
+#     pprint(data['data'][0]['paragraphs'][0])
+    doc_size=len(data['data'])
+#     print 'doc_size:', doc_size
+    para_size=0
+    qa_size=0
+    para_list=[]
+    Q_list=[]
+#     Q_size_list=[]
+    label_list=[]
+    para_mask=[]
+    mask=[]
+    feature_matrixlist=[]
+    stop_words=load_stopwords()
+    for i in range(doc_size):#each doc
+        para_size_i=len(data['data'][i]['paragraphs'])
+        for j in range(para_size_i):#each paragraph
+            question_size_j=len(data['data'][i]['paragraphs'][j]['qas'])
+#             Q_size_list.append(question_size_j)
+            paragraph=data['data'][i]['paragraphs'][j]['context']
+#             print 'paragraph:', paragraph
+#             paragraph_wordlist=paragraph.strip().split()
+#             paragraph_idlist=strs2ids(paragraph_wordlist, word2id)
+#             para_len=len(paragraph_wordlist)
+
+#             Q_sublist=[]
+#             label_sublist=[]
+#             feature_tensor=[]
+
+#             max_q_len=0
+            for q in range(question_size_j):
+                question_q=data['data'][i]['paragraphs'][j]['qas'][q]['question']
+                question_wordlist=tokenize(question_q.strip())
+
+
+#                 feature_tensor.append(feature_matrix_q)
+
+                question_idlist=strs2ids(question_wordlist, word2id)
+                q_len=len(question_idlist)
+#                 if len(question_idlist)>max_q_len:
+#                     max_q_len=len(question_idlist)
+                answer_q=data['data'][i]['paragraphs'][j]['qas'][q]['answers'][0]['text']
+                answer_q_wordlist=tokenize(answer_q)
+                answer_len=len(answer_q_wordlist)
+                answer_start_q=data['data'][i]['paragraphs'][j]['qas'][q]['answers'][0]['answer_start']
+#                 while answer_start_q>0 and paragraph[answer_start_q-1]!=' ':
+#                     answer_start_q-=1
+                answer_left=paragraph[:answer_start_q]
+#                 answer_left_wordlist=truncate_by_punct(tokenize(answer_left), True)
+                answer_left_wordlist=tokenize(answer_left)
+                answer_left_size=len(answer_left_wordlist)
+                answer_right=paragraph[answer_start_q+len(answer_q):]
+#                 answer_right_wordlist=truncate_by_punct(tokenize(answer_right), False)
+                answer_right_wordlist=tokenize(answer_right)
+                answer_right_size=len(answer_right_wordlist)
+                gold_label_q=[0]*answer_left_size+[1]*answer_len+[0]*answer_right_size
+
+                para_len=answer_left_size+answer_len+answer_right_size
+                paragraph_wordlist=answer_left_wordlist+answer_q_wordlist+answer_right_wordlist
+#                 print 'paragraph_wordlist:', paragraph_wordlist
+#                 print 'question_wordlist:', question_wordlist
+#                 exit(0)
+                feature_matrix_q=extra_features(stop_words, paragraph_wordlist, question_wordlist)
+                paragraph_idlist=strs2ids(paragraph_wordlist, word2id)
+                #now, pad paragraph, question, feature_matrix, gold_label
+                #first paragraph
+                pad_para_len=max_para_len-para_len
+                if pad_para_len>0:
+                    paded_paragraph_idlist=[0]*pad_para_len+paragraph_idlist
+                    paded_para_mask_i=[0.0]*pad_para_len+[1.0]*para_len
+                    paded_feature_matrix_q=[[0]*3]*pad_para_len+feature_matrix_q
+                    paded_gold_label=[0]*pad_para_len+gold_label_q
+                else:
+                    paded_paragraph_idlist=paragraph_idlist[:max_para_len]
+                    paded_para_mask_i=([1.0]*para_len)[:max_para_len]
+                    paded_feature_matrix_q=feature_matrix_q[:max_para_len]
+                    paded_gold_label=gold_label_q[:max_para_len]
+#                 if 1.0 not in set(paded_gold_label):
+#                     print 'numpy.sum(numpy.asarray(paded_gold_label))<1'
+#                     exit(0)
+                para_list.append(paded_paragraph_idlist)
+                para_mask.append(paded_para_mask_i)
+                feature_matrixlist.append(paded_feature_matrix_q)
+                label_list.append(binaryLabelList2Value(paded_gold_label))
+                #then question
+                pad_q_len=max_Q_len-q_len
+                if pad_q_len > 0:
+                    paded_question_idlist=[0]*pad_q_len+question_idlist
+                    paded_q_mask_i=[0.0]*pad_q_len+[1.0]*q_len
+                else:
+                    paded_question_idlist=question_idlist[:max_Q_len]
+                    paded_q_mask_i=([1.0]*q_len)[:max_Q_len]
+                Q_list.append(paded_question_idlist)
+                mask.append(paded_q_mask_i)
+
+
+#             submask=[]
+#             Q_sublist_padded=[]
+#             for orig_q in Q_sublist: # pad zero at end of sentences
+#                 existing_len=len(orig_q)
+#                 pad_len=max_q_len-existing_len
+#                 if pad_len>0:
+#                     orig_q+=[0]*pad_len
+#                 Q_sublist_padded.append(orig_q)
+#                 submask.append([1.0]*existing_len+[0.0]*pad_len)
+
+#             for orig_q in Q_sublist: # pad zero at mid of sentences
+#                 existing_len=len(orig_q)
+#                 pad_len=max_q_len-existing_len
+#                 if pad_len>0:
+#                     mid_place=existing_len/2
+#                     orig_q=orig_q[:mid_place]+[0]*pad_len+orig_q[mid_place:]
+#                 Q_sublist_padded.append(orig_q)
+#                 submask.append([1.0]*mid_place+[0.0]*pad_len+[1.0]*(existing_len-mid_place))
+
+
+#             Q_list.append(Q_sublist_padded)
+#             label_list.append(label_sublist)
+#             mask.append(submask)
+#             feature_tensorlist.append(feature_tensor)
+#             print 'question_size_j:', question_size_j
+            qa_size+=question_size_j
+#         print 'para_size_i:', para_size_i
+        para_size+=para_size_i
+#     pprint(len(data['data']))
+#     print data['data'][0]['paragraphs'][0]
+    print 'Load train set', para_size, 'paragraphs,', qa_size, 'question-answer pairs'
+    print 'Train Vocab size:', len(word2id)
+#     exit(0)
+    return para_list, Q_list, label_list, para_mask, mask, word2id, feature_matrixlist
+
+def binaryLabelList2Value(values):
+    one_start=-1
+    one_co=0
+    length=len(values)
+    for index, value in enumerate(values):
+        if value ==1:
+            one_co+=1
+            if one_start<0:
+                one_start=index
+    
+    if one_co>7:
+        one_co=7
+    pos=(one_co-1)*length-(one_co-1)*(one_co-2)/2 + one_start
+    
+    
+    if one_co ==0:
+        return 0
+    else:
+        return pos
+        
 
 if __name__ == '__main__':
 
