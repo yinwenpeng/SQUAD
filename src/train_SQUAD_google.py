@@ -36,7 +36,7 @@ from utils_pg import *
 '''
 
 def evaluate_lenet5(learning_rate=0.01, n_epochs=2000, batch_size=10, test_batch_size=200, emb_size=300, hidden_size=300,
-                    L2_weight=0.0001, para_len_limit=400, q_len_limit=40, max_EM=0.466603773586):
+                    L2_weight=0.0001, para_len_limit=400, q_len_limit=40, max_EM=0.40):
 
     model_options = locals().copy()
     print "model options", model_options
@@ -87,61 +87,76 @@ def evaluate_lenet5(learning_rate=0.01, n_epochs=2000, batch_size=10, test_batch
 
     norm_extraF=normalize_matrix(extraF)
 
-    U1, W1, b1=create_GRU_para(rng, emb_size, hidden_size)
-    U1_b, W1_b, b1_b=create_GRU_para(rng, emb_size, hidden_size)
-    paragraph_para=[U1, W1, b1, U1_b, W1_b, b1_b]
-
-    U_e1, W_e1, b_e1=create_GRU_para(rng, 3*hidden_size+3, hidden_size)
-    U_e1_b, W_e1_b, b_e1_b=create_GRU_para(rng, 3*hidden_size+3, hidden_size)
-    paragraph_para_e1=[U_e1, W_e1, b_e1, U_e1_b, W_e1_b, b_e1_b]
-
-    U_e2, W_e2, b_e2=create_GRU_para(rng, hidden_size, hidden_size)
-    U_e2_b, W_e2_b, b_e2_b=create_GRU_para(rng, hidden_size, hidden_size)
-    paragraph_para_e2=[U_e2, W_e2, b_e2, U_e2_b, W_e2_b, b_e2_b]
-
-    UQ, WQ, bQ=create_GRU_para(rng, emb_size, hidden_size)
-    UQ_b, WQ_b, bQ_b=create_GRU_para(rng, emb_size, hidden_size)
-    Q_para=[UQ, WQ, bQ, UQ_b, WQ_b, bQ_b]
+#     U1, W1, b1=create_GRU_para(rng, emb_size, hidden_size)
+#     U1_b, W1_b, b1_b=create_GRU_para(rng, emb_size, hidden_size)
+#     paragraph_para=[U1, W1, b1, U1_b, W1_b, b1_b]
+    fwd_LSTM_para_dict1=create_LSTM_para(rng, emb_size, hidden_size)
+    bwd_LSTM_para_dict1=create_LSTM_para(rng, emb_size, hidden_size)
+    paragraph_para=fwd_LSTM_para_dict1.values()+ bwd_LSTM_para_dict1.values()# .values returns a list of parameters
     
-    W_HL, b_HL=create_HiddenLayer_para(rng, 2*hidden_size, 2*hidden_size)
+    
+#     U_e1, W_e1, b_e1=create_GRU_para(rng, 3*hidden_size+3, hidden_size)
+#     U_e1_b, W_e1_b, b_e1_b=create_GRU_para(rng, 3*hidden_size+3, hidden_size)
+#     paragraph_para_e1=[U_e1, W_e1, b_e1, U_e1_b, W_e1_b, b_e1_b]
+# 
+#     U_e2, W_e2, b_e2=create_GRU_para(rng, hidden_size, hidden_size)
+#     U_e2_b, W_e2_b, b_e2_b=create_GRU_para(rng, hidden_size, hidden_size)
+#     paragraph_para_e2=[U_e2, W_e2, b_e2, U_e2_b, W_e2_b, b_e2_b]
+    fwd_LSTM_para_e1_dict1=create_LSTM_para(rng, 3*hidden_size+3, hidden_size)
+    bwd_LSTM_para_e1_dict1=create_LSTM_para(rng, 3*hidden_size+3, hidden_size)
+    paragraph_para_e1=fwd_LSTM_para_e1_dict1.values()+ bwd_LSTM_para_e1_dict1.values()# .values returns a list of parameters
+
+    fwd_LSTM_para_e2_dict1=create_LSTM_para(rng, hidden_size, hidden_size)
+    bwd_LSTM_para_e2_dict1=create_LSTM_para(rng, hidden_size, hidden_size)
+    paragraph_para_e2=fwd_LSTM_para_e2_dict1.values()+ bwd_LSTM_para_e2_dict1.values()# .values returns a list of parameters
+
+#     UQ, WQ, bQ=create_GRU_para(rng, emb_size, hidden_size)
+#     UQ_b, WQ_b, bQ_b=create_GRU_para(rng, emb_size, hidden_size)
+#     Q_para=[UQ, WQ, bQ, UQ_b, WQ_b, bQ_b]
+    fwd_LSTM_q_dict1=create_LSTM_para(rng, emb_size, hidden_size)
+    bwd_LSTM_q_dict1=create_LSTM_para(rng, emb_size, hidden_size)
+    Q_para=fwd_LSTM_q_dict1.values()+ bwd_LSTM_q_dict1.values()# .values returns a list of parameters    
+    
+    W_HL, b_HL=create_HiddenLayer_para(rng, 2*hidden_size, hidden_size)
     HL_para=[W_HL, b_HL]
 
-    U_a = create_ensemble_para(rng, 1, 2*hidden_size) # 3 extra features
+    U_a = create_ensemble_para(rng, 1, hidden_size) # 3 extra features
     Score_paras=[U_a]
     
-    params_to_load = [embeddings]+paragraph_para+Q_para+paragraph_para_e1+Score_paras
-    params = paragraph_para_e2+HL_para #[embeddings]+
+#     params_to_load = [embeddings]+paragraph_para+Q_para+paragraph_para_e1+Score_paras
+#     params = paragraph_para_e2+HL_para #[embeddings]+
+#     params_to_store = [embeddings]+paragraph_para+Q_para+paragraph_para_e1+paragraph_para_e2+HL_para+Score_paras  #
+
+#     params_to_load = [embeddings]+paragraph_para+Q_para+paragraph_para_e1+Score_paras
+    params = [embeddings]+paragraph_para+Q_para+paragraph_para_e1+paragraph_para_e2+HL_para+Score_paras #[embeddings]+
     params_to_store = [embeddings]+paragraph_para+Q_para+paragraph_para_e1+paragraph_para_e2+HL_para+Score_paras  #
 
-    load_model_from_file(rootPath+'Best_Paras_conv_0.466603773585', params_to_load)
+#     load_model_from_file(rootPath+'Best_Paras_conv_0.466603773585', params_to_load)
 
     paragraph_input = embeddings[paragraph.flatten()].reshape((true_batch_size, paragraph.shape[1], emb_size)).transpose((0, 2,1)) # (batch_size, emb_size, maxparalen)
 #     concate_paragraph_input=T.concatenate([paragraph_input, norm_extraF.dimshuffle((0,2,1))], axis=1)
 
 
-    paragraph_model=Bd_GRU_Batch_Tensor_Input_with_Mask(X=paragraph_input, Mask=para_mask, hidden_dim=hidden_size,U=U1,W=W1,b=b1,Ub=U1_b,Wb=W1_b,bb=b1_b)
-    para_reps=paragraph_model.output_tensor #(batch, emb, para_len)
+#     paragraph_model=Bd_GRU_Batch_Tensor_Input_with_Mask(X=paragraph_input, Mask=para_mask, hidden_dim=hidden_size,U=U1,W=W1,b=b1,Ub=U1_b,Wb=W1_b,bb=b1_b)
+#     para_reps=paragraph_model.output_tensor #(batch, emb, para_len)
 
-#     #LSTM
-#     fwd_LSTM_para_dict=create_LSTM_para(rng, emb_size, hidden_size)
-#     bwd_LSTM_para_dict=create_LSTM_para(rng, emb_size, hidden_size)
-#     paragraph_para=fwd_LSTM_para_dict.values()+ bwd_LSTM_para_dict.values()# .values returns a list of parameters
-#     paragraph_model=Bd_LSTM_Batch_Tensor_Input_with_Mask(paragraph_input, para_mask,  hidden_size, fwd_LSTM_para_dict, bwd_LSTM_para_dict)
-#     para_reps=paragraph_model.output_tensor
+    #LSTM
+
+    paragraph_model=Bd_LSTM_Batch_Tensor_Input_with_Mask(paragraph_input, para_mask,  hidden_size, fwd_LSTM_para_dict1, bwd_LSTM_para_dict1)
+    para_reps=paragraph_model.output_tensor  #(batch, hidden, para_len)
 
     Qs_emb = embeddings[questions.flatten()].reshape((true_batch_size, questions.shape[1], emb_size)).transpose((0, 2,1)) #(#questions, emb_size, maxsenlength)
 
-    questions_model=Bd_GRU_Batch_Tensor_Input_with_Mask(X=Qs_emb, Mask=q_mask, hidden_dim=hidden_size, U=UQ,W=WQ,b=bQ, Ub=UQ_b, Wb=WQ_b, bb=bQ_b)
+#     questions_model=Bd_GRU_Batch_Tensor_Input_with_Mask(X=Qs_emb, Mask=q_mask, hidden_dim=hidden_size, U=UQ,W=WQ,b=bQ, Ub=UQ_b, Wb=WQ_b, bb=bQ_b)
+#     questions_reps_tensor=questions_model.output_tensor
+#     #LSTM for questions
+
+    questions_model=Bd_LSTM_Batch_Tensor_Input_with_Mask(Qs_emb, q_mask,  hidden_size, fwd_LSTM_q_dict1, bwd_LSTM_q_dict1)
     questions_reps_tensor=questions_model.output_tensor
     questions_reps=questions_model.output_sent_rep_maxpooling.reshape((true_batch_size, 1, hidden_size)) #(batch, 1, hidden)
     questions_reps=T.repeat(questions_reps, para_reps.shape[2], axis=1)  #(batch, para_len, hidden)
 
-#     #LSTM for questions
-#     fwd_LSTM_q_dict=create_LSTM_para(rng, emb_size, hidden_size)
-#     bwd_LSTM_q_dict=create_LSTM_para(rng, emb_size, hidden_size)
-#     Q_para=fwd_LSTM_q_dict.values()+ bwd_LSTM_q_dict.values()# .values returns a list of parameters
-#     questions_model=Bd_LSTM_Batch_Tensor_Input_with_Mask(Qs_emb, q_mask,  hidden_size, fwd_LSTM_q_dict, bwd_LSTM_q_dict)
-#     questions_reps_tensor=questions_model.output_tensor
+
 
 
 
@@ -162,11 +177,19 @@ def evaluate_lenet5(learning_rate=0.01, n_epochs=2000, batch_size=10, test_batch
 
     #para_reps, batch_q_reps, questions_reps.dimshuffle(0,2,1), all are in (batch, hidden , para_len)
     ensemble_para_reps_tensor=T.concatenate([para_reps, batch_q_reps, questions_reps.dimshuffle(0,2,1), norm_extraF.dimshuffle(0,2,1)], axis=1) #(batch, 3*hidden+3, para_len)
-    para_ensemble_model=Bd_GRU_Batch_Tensor_Input_with_Mask(X=ensemble_para_reps_tensor, Mask=para_mask, hidden_dim=hidden_size,U=U_e1,W=W_e1,b=b_e1,Ub=U_e1_b,Wb=W_e1_b,bb=b_e1_b)
-    para_reps_tensor4score_raw=para_ensemble_model.output_tensor #(batch, hidden ,para_len)
     
-    para_ensemble_model2=Bd_GRU_Batch_Tensor_Input_with_Mask(X=para_reps_tensor4score_raw, Mask=para_mask, hidden_dim=hidden_size,U=U_e2,W=W_e2,b=b_e2,Ub=U_e2_b,Wb=W_e2_b,bb=b_e2_b)
-    para_reps_tensor4score=para_ensemble_model2.output_tensor #(batch, hidden ,para_len)    
+    
+#     para_ensemble_model=Bd_GRU_Batch_Tensor_Input_with_Mask(X=ensemble_para_reps_tensor, Mask=para_mask, hidden_dim=hidden_size,U=U_e1,W=W_e1,b=b_e1,Ub=U_e1_b,Wb=W_e1_b,bb=b_e1_b)
+#     para_reps_tensor4score_raw=para_ensemble_model.output_tensor #(batch, hidden ,para_len)
+#     
+#     para_ensemble_model2=Bd_GRU_Batch_Tensor_Input_with_Mask(X=para_reps_tensor4score_raw, Mask=para_mask, hidden_dim=hidden_size,U=U_e2,W=W_e2,b=b_e2,Ub=U_e2_b,Wb=W_e2_b,bb=b_e2_b)
+#     para_reps_tensor4score=para_ensemble_model2.output_tensor #(batch, hidden ,para_len)    
+
+    para_ensemble_model=Bd_LSTM_Batch_Tensor_Input_with_Mask(ensemble_para_reps_tensor, para_mask,  hidden_size, fwd_LSTM_para_e1_dict1, bwd_LSTM_para_e1_dict1)
+    para_reps_tensor4score_raw=para_ensemble_model.output_tensor
+
+    para_ensemble_model2=Bd_LSTM_Batch_Tensor_Input_with_Mask(para_reps_tensor4score_raw, para_mask,  hidden_size, fwd_LSTM_para_e2_dict1, bwd_LSTM_para_e2_dict1)
+    para_reps_tensor4score=para_ensemble_model2.output_tensor
     
     #for span reps
     span_1=T.concatenate([para_reps_tensor4score, para_reps_tensor4score], axis=1) #(batch, 2*hidden ,para_len)
@@ -180,7 +203,7 @@ def evaluate_lenet5(learning_rate=0.01, n_epochs=2000, batch_size=10, test_batch
     span_reps=T.concatenate([span_1, span_2, span_3, span_4, span_5, span_6, span_7], axis=2) #(batch, 2*hidden, 7*para_len-21)
     
     #hidden layer
-    hiddenLayer1 = HiddenLayer_with_Para(rng=rng,input=span_reps.dimshuffle(0,2,1),n_in=2*hidden_size,n_out=2*hidden_size,W=W_HL, b=b_HL, activation=T.tanh)
+    hiddenLayer1 = HiddenLayer_with_Para(rng=rng,input=span_reps.dimshuffle(0,2,1),n_in=2*hidden_size,n_out=hidden_size,W=W_HL, b=b_HL, activation=T.tanh)
     
     
     #score each span reps
@@ -337,7 +360,7 @@ def evaluate_lenet5(learning_rate=0.01, n_epochs=2000, batch_size=10, test_batch
                 if exact_acc> max_exact_acc:
                     max_exact_acc=exact_acc
                     if max_exact_acc > max_EM:
-                        store_model_to_file(rootPath+'Best_Paras_Google_'+str(max_exact_acc), params_to_store)
+                        store_model_to_file(rootPath+'Best_Paras_Google_lstm_'+str(max_exact_acc), params_to_store)
                         print 'Finished storing best  params at:', max_exact_acc
                 print 'current average F1:', F1_acc, '\t\tmax F1:', max_F1_acc, 'current  exact:', exact_acc, '\t\tmax exact_acc:', max_exact_acc
 
