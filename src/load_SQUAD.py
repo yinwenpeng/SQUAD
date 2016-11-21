@@ -671,6 +671,20 @@ def load_word2vec():
     print "==> word2vec is loaded"
 
     return word2vec
+
+def load_glove():
+    word2vec = {}
+
+    print "==> loading 300d glove"
+#     with open(os.path.join(os.path.dirname(os.path.realpath(__file__)), "data/glove/glove.6B." + str(dim) + "d.txt")) as f:
+    f=open('/mounts/data/proj/wenpeng/Dataset/glove.840B.300d.txt', 'r')
+    for line in f:
+        l = line.split()
+        word2vec[l[0]] = map(float, l[1:])
+
+    print "==> glove is loaded"
+
+    return word2vec
 def overlap_degree(sent_wordlist, q_wordlist):
     sent=set(sent_wordlist)
     q=set(q_wordlist)
@@ -913,7 +927,7 @@ def load_dev_hinrich(word2id, example_no_limit, max_context_len, max_span_len, m
                 spans_mask.append(span_mask)
             elif line_co%11==8: # f1
                 candidates_f1.append(float(line.strip()))
-                
+
             elif line_co%11==9:#left
                 left_str=line.strip()
                 if len(left_str)==0:
@@ -1083,6 +1097,34 @@ def  load_train_google(para_len_limit, q_len_limit):
 #     exit(0)
     return para_list, Q_list, label_list, para_mask, mask, word2id, feature_matrixlist
 
+def decode_predict_id(value, wordlist):
+    length=len(wordlist)
+    if value < length:
+        span_len=1
+        span_start=value
+    elif value >= length and value < 2*length-1:
+        span_len=2
+        span_start=value-length
+    elif value >= 2*length-1 and value < 3*length-3:
+        span_len=3
+        span_start=value-(2*length-1)
+    elif value >= 3*length-3 and value < 4*length-6:
+        span_len=4
+        span_start=value-(3*length-3)
+    elif value >= 4*length-6 and value < 5*length-10:
+        span_len=5
+        span_start=value-(4*length-6)
+    elif value >= 5*length-10 and value < 6*length-15:
+        span_len=6
+        span_start=value-(5*length-10)
+    elif value >= 6*length-15 and value < 7*length-21:
+        span_len=7
+        span_start=value-(6*length-15)
+    return ' '.join(wordlist[span_start:span_start+span_len])
+
+
+
+
 def binaryLabelList2Value(values):
     one_start=-1
     one_co=0
@@ -1092,17 +1134,17 @@ def binaryLabelList2Value(values):
             one_co+=1
             if one_start<0:
                 one_start=index
-    
+
     if one_co>7:
         one_co=7
     pos=(one_co-1)*length-(one_co-1)*(one_co-2)/2 + one_start
-    
-    
+
+
     if one_co ==0:
         return 0
     else:
         return pos
-        
+
 
 if __name__ == '__main__':
 
