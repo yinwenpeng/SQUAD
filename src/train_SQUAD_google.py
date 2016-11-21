@@ -20,7 +20,7 @@ from theano.tensor.signal import downsample
 from theano.tensor.nnet import conv
 from load_SQUAD import load_train_google, load_glove, decode_predict_id, load_dev_or_test, extract_ansList_attentionList, extract_ansList_attentionList_maxlen5, MacroF1, load_word2vec, load_word2vec_to_init
 from word2embeddings.nn.util import zero_value, random_value_normal
-from common_functions import Conv_then_GRU_then_Classify, HiddenLayer_with_Para, create_HiddenLayer_para,load_model_from_file, store_model_to_file, create_LSTM_para, Bd_LSTM_Batch_Tensor_Input_with_Mask, Bd_GRU_Batch_Tensor_Input_with_Mask, create_ensemble_para, create_GRU_para, normalize_matrix, create_conv_para, Matrix_Bit_Shift, Conv_with_input_para, L2norm_paraList
+from common_functions import Conv_then_GRU_then_Classify, HiddenLayer_with_Para, Adam, create_HiddenLayer_para,load_model_from_file, store_model_to_file, create_LSTM_para, Bd_LSTM_Batch_Tensor_Input_with_Mask, Bd_GRU_Batch_Tensor_Input_with_Mask, create_ensemble_para, create_GRU_para, normalize_matrix, create_conv_para, Matrix_Bit_Shift, Conv_with_input_para, L2norm_paraList
 from random import shuffle
 from gru import BdGRU, GRULayer
 from utils_pg import *
@@ -35,7 +35,7 @@ from utils_pg import *
 1) train with more length, test with len max 5
 '''
 
-def evaluate_lenet5(learning_rate=0.01, n_epochs=2000, batch_size=10, test_batch_size=200, emb_size=300, hidden_size=300,
+def evaluate_lenet5(learning_rate=0.01, n_epochs=2000, batch_size=20, test_batch_size=200, emb_size=300, hidden_size=300,
                     L2_weight=0.0001, para_len_limit=400, q_len_limit=40, max_EM=0.40):
 
     model_options = locals().copy()
@@ -221,22 +221,26 @@ def evaluate_lenet5(learning_rate=0.01, n_epochs=2000, batch_size=10, test_batch
     cost=loss#+ConvGRU_1.error#
 
 
-    accumulator=[]
-    for para_i in params:
-        eps_p=numpy.zeros_like(para_i.get_value(borrow=True),dtype=theano.config.floatX)
-        accumulator.append(theano.shared(eps_p, borrow=True))
+#     accumulator=[]
+#     for para_i in params:
+#         eps_p=numpy.zeros_like(para_i.get_value(borrow=True),dtype=theano.config.floatX)
+#         accumulator.append(theano.shared(eps_p, borrow=True))
+# 
+#     # create a list of gradients for all model parameters
+#     grads = T.grad(cost, params)
+# 
+#     updates = []
+#     for param_i, grad_i, acc_i in zip(params, grads, accumulator):
+# #         print grad_i.type
+#         acc = acc_i + T.sqr(grad_i)
+#         updates.append((param_i, param_i - learning_rate * grad_i / (T.sqrt(acc)+1e-8)))   #AdaGrad
+#         updates.append((acc_i, acc))
 
-    # create a list of gradients for all model parameters
-    grads = T.grad(cost, params)
+    updates=Adam(cost=cost, params=params, lr=learning_rate)
 
-    updates = []
-    for param_i, grad_i, acc_i in zip(params, grads, accumulator):
-#         print grad_i.type
-        acc = acc_i + T.sqr(grad_i)
-        updates.append((param_i, param_i - learning_rate * grad_i / (T.sqrt(acc)+1e-8)))   #AdaGrad
-        updates.append((acc_i, acc))
-
-
+#     grads = T.grad(cost, params)
+#     opt = rmsprop(params)
+#     updates = opt.updates(params, grads, np.float32(0.01) / np.cast['float32'](batch_size), np.float32(0.9))
 
     train_model = theano.function([paragraph, questions,gold_indices, para_mask, q_mask, extraF], cost, updates=updates,on_unused_input='ignore')
 
