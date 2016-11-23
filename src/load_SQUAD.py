@@ -1063,7 +1063,7 @@ def  load_train_google(para_len_limit, q_len_limit):
     pos_matrixlist=[]
     ner_matrixlist=[]
     stop_words=load_stopwords()
-    size_control=1000
+    size_control=70000
     past_tag=''
     for line in read_file:
         parts=line.strip().split('\t')
@@ -1089,7 +1089,8 @@ def  load_train_google(para_len_limit, q_len_limit):
         
         if past_tag =='Q': #store         
 
-
+            if para_len != len(pos_list) or para_len != len(ner_list) or para_len != len(gold_label_q):
+                continue
             feature_matrix_q=extra_features(stop_words, paragraph_wordlist, question_wordlist)  #(para_len, 3)
             pos_feature_matrix, ner_feature_matrix= poslist_nerlist_2_featurematrix(pos_list, ner_list, pos_size, ner_size)
 
@@ -1140,7 +1141,7 @@ def  load_train_google(para_len_limit, q_len_limit):
     print 'Load train set', qa_size, 'question-answer pairs'
     print 'Train Vocab size:', len(word2id)
 #     exit(0)
-    return para_list, Q_list, label_list, para_mask, mask, word2id, feature_matrixlist, pos_matrixlist, ner_matrixlist
+    return para_list, Q_list, label_list, para_mask, mask, word2id, feature_matrixlist, pos_matrixlist, numpy.asarray(ner_matrixlist)
 
 def decode_predict_id(value, wordlist):
     length=len(wordlist)
