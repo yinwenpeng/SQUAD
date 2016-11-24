@@ -75,12 +75,12 @@ def matrix_svd(matrix):
     
 def create_GRU_para(rng, word_dim, hidden_dim):
         # Initialize the network parameters
-#         U = numpy.random.uniform(-0.01, 0.01, (3, hidden_dim, word_dim))
+        U = numpy.random.uniform(-0.01, 0.01, (3, hidden_dim, word_dim))
 #         U=rng.normal(0.0, 0.01, (3, hidden_dim, word_dim))
-        U=rng.uniform(-0.01, 0.01, (3, hidden_dim, word_dim))
-#         W = numpy.random.uniform(-0.01, 0.01, (3, hidden_dim, hidden_dim))
+#         U=rng.uniform(-0.01, 0.01, (3, hidden_dim, word_dim))
+        W = numpy.random.uniform(-0.01, 0.01, (3, hidden_dim, hidden_dim))
 #         W=rng.normal(0.0, 0.01, (3, hidden_dim, hidden_dim))
-        W=rng.uniform(-0.01, 0.01, (3, hidden_dim, hidden_dim))
+#         W=rng.uniform(-0.01, 0.01, (3, hidden_dim, hidden_dim))
         b = numpy.zeros((3, hidden_dim))
         # Theano: Created shared variables
         U = theano.shared(name='U', value=U.astype(theano.config.floatX), borrow=True)
@@ -1226,7 +1226,7 @@ class GRU_Average_Pooling_Scan(object):
 
 #         self.params = [self.W]
 
-def drop(input, p, rng): 
+def dropout_standard(is_train, input, p, rng): 
     """
     :type input: numpy.array
     :param input: layer or weight matrix on which dropout resp. dropconnect is applied
@@ -1236,8 +1236,9 @@ def drop(input, p, rng):
     
     """            
     srng = T.shared_randomstreams.RandomStreams(rng.randint(999999))
-    mask = srng.binomial(n=1, p=p, size=input.shape, dtype=theano.config.floatX)
-    return input * mask
+    mask = srng.binomial(n = 1, p = 1-p, size = input.shape, dtype = theano.config.floatX)
+    return  T.switch(T.eq(is_train, 1), input * mask, input * (1 - p))
+
 class Average_Pooling_RNN(object):
     """The input is output of Conv: a tensor.  The output here should also be tensor"""
 

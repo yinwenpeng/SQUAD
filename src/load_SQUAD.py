@@ -103,6 +103,19 @@ def strs2ids(str_list, word2id):
         ids.append(id)
     return ids
 
+def strs2ids_vocab(str_list, word2id, vocab):
+    ids=[]
+    for word in str_list:
+        if word not in vocab:
+            word='UNK'
+        word=word.lower()
+        id=word2id.get(word)
+        if id is None:
+            id=len(word2id)+1   # start from 2, 0 for pad, 1 for UNK
+
+        word2id[word]=id
+        ids.append(id)
+    return ids
 def load_stopwords():
     readfile=open(path+'stopwords.txt', 'r')
     stopwords=set()
@@ -258,7 +271,7 @@ def  load_train(para_len_limit, q_len_limit):
                 para_list.append(paded_paragraph_idlist)
                 para_mask.append(paded_para_mask_i)
                 feature_matrixlist.append(paded_feature_matrix_q)
-                label_list.append(paded_gold_label)
+                label_list.append(binaryLabelList2Value(paded_gold_label))
                 #then question
                 pad_q_len=max_Q_len-q_len
                 if pad_q_len > 0:
@@ -306,7 +319,7 @@ def  load_train(para_len_limit, q_len_limit):
 #     exit(0)
     return para_list, Q_list, label_list, para_mask, mask, word2id, feature_matrixlist
 
-def  load_dev_or_test(word2vec, word2id, para_len_limit, q_len_limit):
+def  load_dev_or_test_google(word2vec, word2id, para_len_limit, q_len_limit):
 #     Dev  max_para_len:, 629 max_q_len: 33
 #     read_file=open(path+'train-v1.0.json', 'r')
     max_para_len=para_len_limit
@@ -429,7 +442,135 @@ def  load_dev_or_test(word2vec, word2id, para_len_limit, q_len_limit):
     print 'Train+Dev Vocab size:', len(word2id)
 #     print word2id
     return para_list, Q_list, Q_list_word, para_mask, mask, len(word2id), word2id, para_text_list, q_ansSet_list, feature_matrixlist, pos_matrixlist, ner_matrixlist
+def  load_dev_or_test(word2id, para_len_limit, q_len_limit):
+#     Dev  max_para_len:, 629 max_q_len: 33
+#     read_file=open(path+'train-v1.0.json', 'r')
+    max_para_len=para_len_limit
+    max_Q_len = q_len_limit
+    with open(path+'dev-v1.1.json') as data_file:
+        data = json.load(data_file)
 
+#     pprint(data['data'][0]['paragraphs'][0])
+    doc_size=len(data['data'])
+#     print 'doc_size:', doc_size
+
+    word2vec=load_word2vec()
+
+
+    para_size=0
+    qa_size=0
+    para_list=[]
+    Q_list=[]
+    Q_list_word=[]
+    para_mask=[]
+    mask=[]
+    feature_matrixlist=[]
+    para_text_list=[]
+    q_ansSet_list=[]
+    stop_words=load_stopwords()
+    id_list=[]
+    for i in range(doc_size):#each doc
+        para_size_i=len(data['data'][i]['paragraphs'])
+        for j in range(para_size_i):#each paragraph
+            question_size_j=len(data['data'][i]['paragraphs'][j]['qas']) #how many questions for this paragraph
+#             Q_size_list.append(question_size_j)
+            paragraph=data['data'][i]['paragraphs'][j]['context']
+#             print 'paragraph:', paragraph
+            paragraph_wordlist=tokenize(paragraph.strip())
+#             para_text_list.append(paragraph_wordlist)
+#             paragraph_idlist=strs2ids(paragraph_wordlist, word2id)
+#             para_len=len(paragraph_wordlist)
+
+#             Q_sublist=[]
+#             label_sublist=[]
+#             feature_tensor=[]
+#             ansSetList=[]
+#             max_q_len=0
+            for q in range(question_size_j): # for each question
+                question_q=data['data'][i]['paragraphs'][j]['qas'][q]['question']
+                q_id = data['data'][i]['paragraphs'][j]['qas'][q]['id']
+#                 print 'q_id:', q_id
+                question_wordlist=tokenize(question_q.strip())
+                truncate_paragraph_wordlist=truncate_paragraph_by_question(word2vec, paragraph_wordlist, question_wordlist, 1)
+                truncate_paragraph_idlist=strs2ids(truncate_paragraph_wordlist, word2id)
+                truncate_para_len=len(truncate_paragraph_wordlist)
+                feature_matrix_q=extra_features(stop_words, truncate_paragraph_wordlist, question_wordlist)
+#                 feature_tensor.append(feature_matrix_q)
+
+
+                question_idlist=strs2ids(question_wordlist, word2id)
+                q_len=len(question_idlist)
+#                 if len(question_idlist)>max_q_len:
+#                     max_q_len=len(question_idlist)
+
+                answer_no=len(data['data'][i]['paragraphs'][j]['qas'][q]['answers'])
+                q_ansSet=set()
+                for ans in range(answer_no):
+                    answer_q=data['data'][i]['paragraphs'][j]['qas'][q]['answers'][ans]['text']
+                    q_ansSet.add(' '.join(tokenize(answer_q.strip())))
+#                     answer_len=len(answer_q.strip().split())
+
+#                     answer_start_q=data['data'][i]['paragraphs'][j]['qas'][q]['answers'][ans]['answer_start']
+#                     while answer_start_q>0 and paragraph[answer_start_q-1]!=' ':
+#                         answer_start_q-=1
+#                     answer_left=paragraph[:answer_start_q]
+#                     answer_left_size=len(answer_left.strip().split())
+#                     gold_label_q=[-1.0]*answer_left_size+[1.0]*answer_len+[-1.0]*(para_len-answer_left_size-answer_len)
+#                 ansSetList.append(q_ansSet)
+#                 Q_sublist.append(question_idlist)
+#                 if len(label_sublist)>=1 and len(gold_label_q)!=len(label_sublist[-1]):
+#                     print 'wired size'
+#                     print len(gold_label_q),len(label_sublist[-1])
+#                     exit(0)
+#                 label_sublist.append(gold_label_q)
+                #now, pad paragraph, question, feature_matrix, gold_label
+                #first paragraph
+                pad_para_len=max_para_len-truncate_para_len
+                if pad_para_len>0:
+                    paded_paragraph_idlist=[0]*pad_para_len+truncate_paragraph_idlist
+                    paded_para_mask_i=[0.0]*pad_para_len+[1.0]*truncate_para_len
+                    paded_feature_matrix_q=[[0]*3]*pad_para_len+feature_matrix_q
+                    paded_para_text=['UNK']*pad_para_len+truncate_paragraph_wordlist
+                else:
+                    paded_paragraph_idlist=truncate_paragraph_idlist[:max_para_len]
+                    paded_para_mask_i=([1.0]*truncate_para_len)[:max_para_len]
+                    paded_feature_matrix_q=feature_matrix_q[:max_para_len]
+                    paded_para_text=truncate_paragraph_wordlist[:max_para_len]
+
+#                 paded_paragraph_idlist=[0]*pad_para_len+paragraph_idlist
+#                 paded_para_mask_i=[0.0]*pad_para_len+[1.0]*para_len
+#                 paded_feature_matrix_q=[[0]*3]*pad_para_len+feature_matrix_q
+#                 paded_para_text=['UNK']*pad_para_len+paragraph_wordlist
+                para_list.append(paded_paragraph_idlist)
+                para_mask.append(paded_para_mask_i)
+                feature_matrixlist.append(paded_feature_matrix_q)
+                para_text_list.append(paded_para_text)
+                #then question
+                pad_q_len=max_Q_len-q_len
+                if pad_q_len > 0:
+                    paded_question_idlist=[0]*pad_q_len+question_idlist
+                    paded_q_mask_i=[0.0]*pad_q_len+[1.0]*q_len
+                else:
+                    paded_question_idlist=question_idlist[:max_Q_len]
+                    paded_q_mask_i=([1.0]*q_len)[:max_Q_len]
+#                 paded_question_idlist=[0]*pad_q_len+question_idlist
+#                 paded_q_mask_i=[0.0]*pad_q_len+[1.0]*q_len
+                Q_list.append(paded_question_idlist)
+                Q_list_word.append(question_wordlist)
+                mask.append(paded_q_mask_i)
+                #then , store answers
+                q_ansSet_list.append(q_ansSet)
+                id_list.append(q_id)
+
+            qa_size+=question_size_j
+#         print 'para_size_i:', para_size_i
+        para_size+=para_size_i
+#     pprint(len(data['data']))
+#     print data['data'][0]['paragraphs'][0]
+    print 'Load dev set', para_size, 'paragraphs,', qa_size, 'question-answer pairs'
+    print 'Train+Dev Vocab size:', len(word2id)
+#     print word2id
+    return para_list, Q_list, Q_list_word, para_mask, mask, len(word2id), word2id, para_text_list, q_ansSet_list, feature_matrixlist, id_list
 def fine_grained_subStr(text):
     #supposed text is a word list
     length=len(text)
@@ -1133,8 +1274,8 @@ def  load_train_google(para_len_limit, q_len_limit):
             mask.append(paded_q_mask_i)
                 
             qa_size+=1    
-            if qa_size == size_control:
-                break
+#             if qa_size == size_control:
+#                 break
                 
             
 

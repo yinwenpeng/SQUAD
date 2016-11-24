@@ -18,14 +18,15 @@ from WPDefined import ConvFoldPoolLayer, dropout_from_layer, shared_dataset, rep
 from cis.deep.utils.theano import debug_print
 from theano.tensor.signal import downsample
 from theano.tensor.nnet import conv
-from load_SQUAD import load_train_google, load_glove, decode_predict_id, load_dev_or_test, extract_ansList_attentionList, extract_ansList_attentionList_maxlen5, MacroF1, load_word2vec, load_word2vec_to_init
+from load_SQUAD import load_train, load_glove, decode_predict_id, load_dev_or_test, extract_ansList_attentionList, extract_ansList_attentionList_maxlen5, MacroF1, load_word2vec, load_word2vec_to_init
 from word2embeddings.nn.util import zero_value, random_value_normal
 from common_functions import Conv_then_GRU_then_Classify, load_model_from_file, store_model_to_file, create_LSTM_para, Bd_LSTM_Batch_Tensor_Input_with_Mask, Bd_GRU_Batch_Tensor_Input_with_Mask, create_ensemble_para, create_GRU_para, normalize_matrix, create_conv_para, Matrix_Bit_Shift, Conv_with_input_para, L2norm_paraList
 from random import shuffle
 from gru import BdGRU, GRULayer
 from utils_pg import *
-
-
+from evaluate import standard_eval
+import codecs
+import json
 
 
 
@@ -43,34 +44,36 @@ Train  max_para_len:, 653 max_q_len: 40
 Dev  max_para_len:, 629 max_q_len: 33
 '''
 
-def evaluate_lenet5(learning_rate=0.01, n_epochs=2000, batch_size=10, test_batch_size=200, emb_size=300, hidden_size=300,
-                    L2_weight=0.0001, para_len_limit=400, q_len_limit=40, max_EM=0.40):
+def evaluate_lenet5(learning_rate=0.0001, n_epochs=2000, batch_size=10, test_batch_size=200, emb_size=300, hidden_size=300,
+                    L2_weight=0.0001, para_len_limit=400, q_len_limit=40, max_EM=0.46858490567):
 
     model_options = locals().copy()
     print "model options", model_options
     rootPath='/mounts/data/proj/wenpeng/Dataset/SQuAD/';
     rng = numpy.random.RandomState(23455)
-    train_para_list, train_Q_list, train_label_list, train_para_mask, train_mask, word2id, train_feature_matrixlist, train_pos_matrixlist, train_ner_matrixlist=load_train_google(para_len_limit, q_len_limit)
+    
+
+#     glove_vocab=set(word2vec.keys())
+    train_para_list, train_Q_list, train_label_list, train_para_mask, train_mask, word2id, train_feature_matrixlist=load_train(para_len_limit, q_len_limit)
     train_size=len(train_para_list)
     if train_size!=len(train_Q_list) or train_size!=len(train_label_list) or train_size!=len(train_para_mask):
         print 'train_size!=len(Q_list) or train_size!=len(label_list) or train_size!=len(para_mask)'
         exit(0)
-    word2vec=load_glove()
-    test_para_list, test_Q_list, test_Q_list_word, test_para_mask, test_mask, overall_vocab_size, overall_word2id, test_text_list, q_ansSet_list, test_feature_matrixlist, test_pos_matrixlist, test_ner_matrixlist= load_dev_or_test(word2vec, word2id, para_len_limit, q_len_limit)
+    
+    test_para_list, test_Q_list, test_Q_list_word, test_para_mask, test_mask, overall_vocab_size, overall_word2id, test_text_list, q_ansSet_list, test_feature_matrixlist, q_idlist= load_dev_or_test(word2id, para_len_limit, q_len_limit)
     test_size=len(test_para_list)
     if test_size!=len(test_Q_list) or test_size!=len(test_mask) or test_size!=len(test_para_mask):
         print 'test_size!=len(test_Q_list) or test_size!=len(test_mask) or test_size!=len(test_para_mask)'
         exit(0)
 
-    pos_size=37+1
-    ner_size=8+1
+
 
 
 
     rand_values=random_value_normal((overall_vocab_size+1, emb_size), theano.config.floatX, numpy.random.RandomState(1234))
     rand_values[0]=numpy.array(numpy.zeros(emb_size),dtype=theano.config.floatX)
     id2word = {y:x for x,y in overall_word2id.iteritems()}
-    
+    word2vec=load_glove()
     rand_values=load_word2vec_to_init(rand_values, id2word, word2vec)
     embeddings=theano.shared(value=rand_values, borrow=True)
 
@@ -84,8 +87,6 @@ def evaluate_lenet5(learning_rate=0.01, n_epochs=2000, batch_size=10, test_batch
     para_mask=T.fmatrix('para_mask')
     q_mask=T.fmatrix('q_mask')
     extraF=T.ftensor3('extraF') # should be in shape (batch, wordsize, 3)
-    posF=T.ftensor3()
-    nerF=T.ftensor3()
 
 
 
@@ -102,8 +103,8 @@ def evaluate_lenet5(learning_rate=0.01, n_epochs=2000, batch_size=10, test_batch
     U1_b, W1_b, b1_b=create_GRU_para(rng, emb_size, hidden_size)
     paragraph_para=[U1, W1, b1, U1_b, W1_b, b1_b]
 
-    U_e1, W_e1, b_e1=create_GRU_para(rng, 3*hidden_size+3+pos_size+ner_size, hidden_size)
-    U_e1_b, W_e1_b, b_e1_b=create_GRU_para(rng, 3*hidden_size+3+pos_size+ner_size, hidden_size)
+    U_e1, W_e1, b_e1=create_GRU_para(rng, 3*hidden_size+3, hidden_size)
+    U_e1_b, W_e1_b, b_e1_b=create_GRU_para(rng, 3*hidden_size+3, hidden_size)
     paragraph_para_e1=[U_e1, W_e1, b_e1, U_e1_b, W_e1_b, b_e1_b]
 
 
@@ -121,7 +122,7 @@ def evaluate_lenet5(learning_rate=0.01, n_epochs=2000, batch_size=10, test_batch
     HL_paras=[U_a]
     params = [embeddings]+paragraph_para+Q_para+paragraph_para_e1+HL_paras
 
-#     load_model_from_file(rootPath+'Best_Paras_conv_0.217545454545', params)
+    load_model_from_file(rootPath+'Best_Paras_conv_0.46858490566', params)
 
     paragraph_input = embeddings[paragraph.flatten()].reshape((true_batch_size, paragraph.shape[1], emb_size)).transpose((0, 2,1)) # (batch_size, emb_size, maxparalen)
     concate_paragraph_input=T.concatenate([paragraph_input, norm_extraF.dimshuffle((0,2,1))], axis=1)
@@ -191,7 +192,7 @@ def evaluate_lenet5(learning_rate=0.01, n_epochs=2000, batch_size=10, test_batch
 
 
     #para_reps, batch_q_reps, questions_reps.dimshuffle(0,2,1), all are in (batch, hidden , para_len)
-    ensemble_para_reps_tensor=T.concatenate([para_reps, batch_q_reps, questions_reps.dimshuffle(0,2,1), norm_extraF.dimshuffle(0,2,1), posF.dimshuffle(0,2,1), nerF.dimshuffle(0,2,1)], axis=1) #(batch, 3*hidden+3, para_len)
+    ensemble_para_reps_tensor=T.concatenate([para_reps, batch_q_reps, questions_reps.dimshuffle(0,2,1), norm_extraF.dimshuffle(0,2,1)], axis=1) #(batch, 3*hidden+3, para_len)
     para_ensemble_model=Bd_GRU_Batch_Tensor_Input_with_Mask(X=ensemble_para_reps_tensor, Mask=para_mask, hidden_dim=hidden_size,U=U_e1,W=W_e1,b=b_e1,Ub=U_e1_b,Wb=W_e1_b,bb=b_e1_b)
     para_reps_tensor4score=para_ensemble_model.output_tensor #(batch, hidden ,para_len)
     #for span reps
@@ -237,9 +238,9 @@ def evaluate_lenet5(learning_rate=0.01, n_epochs=2000, batch_size=10, test_batch
 
 
 
-    train_model = theano.function([paragraph, questions,gold_indices, para_mask, q_mask, extraF, posF, nerF], cost, updates=updates,on_unused_input='ignore')
+    train_model = theano.function([paragraph, questions,gold_indices, para_mask, q_mask, extraF], cost, updates=updates,on_unused_input='ignore')
 
-    test_model = theano.function([paragraph, questions,para_mask, q_mask, extraF, posF, nerF], test_return, on_unused_input='ignore')
+    test_model = theano.function([paragraph, questions,para_mask, q_mask, extraF], test_return, on_unused_input='ignore')
 
 
 
@@ -297,36 +298,32 @@ def evaluate_lenet5(learning_rate=0.01, n_epochs=2000, batch_size=10, test_batch
                                       numpy.asarray([train_label_list[id] for id in train_ids[para_id:para_id+batch_size]], dtype='int32'),
                                       numpy.asarray([train_para_mask[id] for id in train_ids[para_id:para_id+batch_size]], dtype=theano.config.floatX),
                                       numpy.asarray([train_mask[id] for id in train_ids[para_id:para_id+batch_size]], dtype=theano.config.floatX),
-                                      numpy.asarray([train_feature_matrixlist[id] for id in train_ids[para_id:para_id+batch_size]], dtype=theano.config.floatX),
-                                      numpy.asarray([train_pos_matrixlist[id] for id in train_ids[para_id:para_id+batch_size]], dtype=theano.config.floatX),
-                                      numpy.asarray([train_ner_matrixlist[id] for id in train_ids[para_id:para_id+batch_size]], dtype=theano.config.floatX))
+                                      numpy.asarray([train_feature_matrixlist[id] for id in train_ids[para_id:para_id+batch_size]], dtype=theano.config.floatX))
 
             #print iter
             if iter%10==0:
                 print 'Epoch ', epoch, 'iter '+str(iter)+' average cost: '+str(cost_i/iter), 'uses ', (time.time()-past_time)/60.0, 'min'
                 print 'Testing...'
                 past_time = time.time()
-
-                exact_match=0.0
-                F1_match=0.0
+#                 writefile=codecs.open(rootPath+'predictions.txt', 'w', 'utf-8')
+#                 writefile.write('{')
+                pred_dict={}
+#                 exact_match=0.0
+#                 F1_match=0.0
                 q_amount=0
                 for test_para_id in test_batch_start:
-#                     print test_para_id
-# #                     print test_pos_matrixlist[test_para_id:test_para_id+test_batch_size]
-#                     for i in range(test_batch_size):
-#                         print len(test_pos_matrixlist[test_para_id+i])
                     batch_predict_ids=test_model(
                                         numpy.asarray(test_para_list[test_para_id:test_para_id+test_batch_size], dtype='int32'),
                                               numpy.asarray(test_Q_list[test_para_id:test_para_id+test_batch_size], dtype='int32'),
                                               numpy.asarray(test_para_mask[test_para_id:test_para_id+test_batch_size], dtype=theano.config.floatX),
                                               numpy.asarray(test_mask[test_para_id:test_para_id+test_batch_size], dtype=theano.config.floatX),
-                                              numpy.asarray(test_feature_matrixlist[test_para_id:test_para_id+test_batch_size], dtype=theano.config.floatX),
-                                              numpy.asarray(test_pos_matrixlist[test_para_id:test_para_id+test_batch_size], dtype=theano.config.floatX),
-                                              numpy.asarray(test_ner_matrixlist[test_para_id:test_para_id+test_batch_size], dtype=theano.config.floatX))
+                                              numpy.asarray(test_feature_matrixlist[test_para_id:test_para_id+test_batch_size], dtype=theano.config.floatX))
 
 #                     print distribution_matrix
                     test_para_wordlist_list=test_text_list[test_para_id:test_para_id+test_batch_size]
-                    para_gold_ansset_list=q_ansSet_list[test_para_id:test_para_id+test_batch_size]
+#                     para_gold_ansset_list=q_ansSet_list[test_para_id:test_para_id+test_batch_size]
+                    q_ids_batch=q_idlist[test_para_id:test_para_id+test_batch_size]
+#                     print 'q_ids_batch:', q_ids_batch
                     # paralist_extra_features=test_feature_matrixlist[test_para_id:test_para_id+batch_size]
                     # sub_para_mask=test_para_mask[test_para_id:test_para_id+batch_size]
                     # para_len=len(test_para_wordlist_list[0])
@@ -338,7 +335,7 @@ def evaluate_lenet5(learning_rate=0.01, n_epochs=2000, batch_size=10, test_batch
 #                     print q_size
 #                     print test_para_word_list
 
-                    Q_list_inword=test_Q_list_word[test_para_id:test_para_id+test_batch_size]
+#                     Q_list_inword=test_Q_list_word[test_para_id:test_para_id+test_batch_size]
                     for q in range(test_batch_size): #for each question
 #                         if len(distribution_matrix[q])!=len(test_label_matrix[q]):
 #                             print 'len(distribution_matrix[q])!=len(test_label_matrix[q]):', len(distribution_matrix[q]), len(test_label_matrix[q])
@@ -351,17 +348,23 @@ def evaluate_lenet5(learning_rate=0.01, n_epochs=2000, batch_size=10, test_batch
 #                         exit(0)
 #                         print 'distribution_matrix[q]:',distribution_matrix[q]
                         pred_ans=decode_predict_id(batch_predict_ids[q], test_para_wordlist_list[q])
+                        q_id=q_ids_batch[q]
+                        pred_dict[q_id]=pred_ans
+#                         writefile.write('"'+str(q_id)+'": "'+pred_ans+'", ')
                         # pred_ans=extract_ansList_attentionList(test_para_wordlist_list[q], distribution_matrix[q], numpy.asarray(paralist_extra_features[q], dtype=theano.config.floatX), sub_para_mask[q], Q_list_inword[q])
-                        q_gold_ans_set=para_gold_ansset_list[q]
-#                         print test_para_wordlist_list[q]
-#                         print Q_list_inword[q]
-#                         print pred_ans.encode('utf8'), q_gold_ans_set
-                        if pred_ans in q_gold_ans_set:
-                            exact_match+=1
-                        F1=MacroF1(pred_ans, q_gold_ans_set)
-                        F1_match+=F1
-                F1_acc=F1_match/q_amount
-                exact_acc=exact_match/q_amount
+#                         q_gold_ans_set=para_gold_ansset_list[q]
+# #                         print test_para_wordlist_list[q]
+# #                         print Q_list_inword[q]
+# #                         print pred_ans.encode('utf8'), q_gold_ans_set
+#                         if pred_ans in q_gold_ans_set:
+#                             exact_match+=1
+#                         F1=MacroF1(pred_ans, q_gold_ans_set)
+#                         F1_match+=F1
+                with codecs.open(rootPath+'predictions.txt', 'w', 'utf-8') as outfile:
+                    json.dump(pred_dict, outfile)
+                F1_acc, exact_acc = standard_eval(rootPath+'dev-v1.1.json', rootPath+'predictions.txt')
+#                 F1_acc=F1_match/q_amount
+#                 exact_acc=exact_match/q_amount
                 if F1_acc> max_F1_acc:
                     max_F1_acc=F1_acc
                 if exact_acc> max_exact_acc:
@@ -370,6 +373,9 @@ def evaluate_lenet5(learning_rate=0.01, n_epochs=2000, batch_size=10, test_batch
                         store_model_to_file(rootPath+'Best_Paras_conv_'+str(max_exact_acc), params)
                         print 'Finished storing best  params at:', max_exact_acc
                 print 'current average F1:', F1_acc, '\t\tmax F1:', max_F1_acc, 'current  exact:', exact_acc, '\t\tmax exact_acc:', max_exact_acc
+                
+                
+#                 os.system('python evaluate-v1.1.py '+rootPath+'dev-v1.1.json '+rootPath+'predictions.txt')
 
 
 
