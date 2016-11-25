@@ -1747,7 +1747,7 @@ class HiddenLayer_with_Para(object):
         lin_output = T.dot(input, self.W) + self.b
         self.output = (lin_output if activation is None
                        else activation(lin_output))  
-def Adam(cost, params, lr=0.0002, b1=0.1, b2=0.001, e=1e-8):
+def Adam(cost, params, lr=0.001, b1=0.1, b2=0.001, e=1e-8):
     updates = []
     grads = T.grad(cost, params)
     i = theano.shared(numpy.float32(0.))

@@ -20,7 +20,7 @@ from theano.tensor.signal import downsample
 from theano.tensor.nnet import conv
 from load_SQUAD import load_train, load_glove, decode_predict_id, load_dev_or_test, extract_ansList_attentionList, extract_ansList_attentionList_maxlen5, MacroF1, load_word2vec, load_word2vec_to_init
 from word2embeddings.nn.util import zero_value, random_value_normal
-from common_functions import Conv_then_GRU_then_Classify, load_model_from_file, store_model_to_file, create_LSTM_para, Bd_LSTM_Batch_Tensor_Input_with_Mask, Bd_GRU_Batch_Tensor_Input_with_Mask, create_ensemble_para, create_GRU_para, normalize_matrix, create_conv_para, Matrix_Bit_Shift, Conv_with_input_para, L2norm_paraList
+from common_functions import Conv_then_GRU_then_Classify,Adam, load_model_from_file, store_model_to_file, create_LSTM_para, Bd_LSTM_Batch_Tensor_Input_with_Mask, Bd_GRU_Batch_Tensor_Input_with_Mask, create_ensemble_para, create_GRU_para, normalize_matrix, create_conv_para, Matrix_Bit_Shift, Conv_with_input_para, L2norm_paraList
 from random import shuffle
 from gru import BdGRU, GRULayer
 from utils_pg import *
@@ -33,19 +33,14 @@ import json
 
 #need to try
 '''
-1) Q rep only uses first 3 hidden states
-4) new MacroF1 function
-5) make the system deeper
-6) consider passage as sentence sequence, compare question with each question
+1) dropout
+2) larger-len training, smaller_len for testing
+3) more linguistic features
+4) add "sum" in attention
 '''
 
-'''
-Train  max_para_len:, 653 max_q_len: 40
-Dev  max_para_len:, 629 max_q_len: 33
-'''
-
-def evaluate_lenet5(learning_rate=0.0001, n_epochs=2000, batch_size=10, test_batch_size=200, emb_size=300, hidden_size=300,
-                    L2_weight=0.0001, para_len_limit=400, q_len_limit=40, max_EM=0.46858490567):
+def evaluate_lenet5(learning_rate=0.0001, n_epochs=2000, batch_size=20, test_batch_size=200, emb_size=300, hidden_size=300,
+                    L2_weight=0.0001, para_len_limit=400, q_len_limit=40, max_EM=50.1040681174):
 
     model_options = locals().copy()
     print "model options", model_options
@@ -71,10 +66,10 @@ def evaluate_lenet5(learning_rate=0.0001, n_epochs=2000, batch_size=10, test_bat
 
 
     rand_values=random_value_normal((overall_vocab_size+1, emb_size), theano.config.floatX, numpy.random.RandomState(1234))
-    rand_values[0]=numpy.array(numpy.zeros(emb_size),dtype=theano.config.floatX)
-    id2word = {y:x for x,y in overall_word2id.iteritems()}
-    word2vec=load_glove()
-    rand_values=load_word2vec_to_init(rand_values, id2word, word2vec)
+#     rand_values[0]=numpy.array(numpy.zeros(emb_size),dtype=theano.config.floatX)
+#     id2word = {y:x for x,y in overall_word2id.iteritems()}
+#     word2vec=load_glove()
+#     rand_values=load_word2vec_to_init(rand_values, id2word, word2vec)
     embeddings=theano.shared(value=rand_values, borrow=True)
 
 
@@ -122,7 +117,7 @@ def evaluate_lenet5(learning_rate=0.0001, n_epochs=2000, batch_size=10, test_bat
     HL_paras=[U_a]
     params = [embeddings]+paragraph_para+Q_para+paragraph_para_e1+HL_paras
 
-    load_model_from_file(rootPath+'Best_Paras_conv_0.46858490566', params)
+    load_model_from_file(rootPath+'Best_Paras_conv_50.1040681173', params)
 
     paragraph_input = embeddings[paragraph.flatten()].reshape((true_batch_size, paragraph.shape[1], emb_size)).transpose((0, 2,1)) # (batch_size, emb_size, maxparalen)
     concate_paragraph_input=T.concatenate([paragraph_input, norm_extraF.dimshuffle((0,2,1))], axis=1)
@@ -152,19 +147,6 @@ def evaluate_lenet5(learning_rate=0.0001, n_epochs=2000, batch_size=10, test_bat
 #     questions_model=Bd_LSTM_Batch_Tensor_Input_with_Mask(Qs_emb, q_mask,  hidden_size, fwd_LSTM_q_dict, bwd_LSTM_q_dict)
 #     questions_reps_tensor=questions_model.output_tensor
 
-#use CNN for question modeling
-#     Qs_emb_tensor4=Qs_emb.dimshuffle((0,'x', 1,2)) #(batch_size, 1, emb+3, maxparalen)
-#     conv_W, conv_b=create_conv_para(rng, filter_shape=(hidden_size, 1, emb_size, 5))
-#     Q_conv_para=[conv_W, conv_b]
-#     conv_model = Conv_with_input_para(rng, input=Qs_emb_tensor4,
-#             image_shape=(batch_size, 1, emb_size, q_len_limit),
-#             filter_shape=(hidden_size, 1, emb_size, 5), W=conv_W, b=conv_b)
-#     conv_output=conv_model.narrow_conv_out.reshape((batch_size, hidden_size, q_len_limit-5+1)) #(batch, 1, hidden_size, maxparalen-1)
-#     gru_mask=(q_mask[:,:-4]*q_mask[:,1:-3]*q_mask[:,2:-2]*q_mask[:,3:-1]*q_mask[:,4:]).reshape((batch_size, 1, q_len_limit-5+1))
-#     masked_conv_output=conv_output*gru_mask
-#     questions_conv_reps=T.max(masked_conv_output, axis=2).reshape((batch_size, 1, hidden_size))
-
-
 
 
 
@@ -184,7 +166,8 @@ def evaluate_lenet5(learning_rate=0.0001, n_epochs=2000, batch_size=10, test_bat
         transpose_para_matrix=para_matrix.T
         interaction_matrix=T.dot(transpose_para_matrix, q_matrix) #(para_len, q_len)
         norm_interaction_matrix=T.nnet.softmax(interaction_matrix)
-        return T.dot(q_matrix, norm_interaction_matrix.T) #(len, para_len)
+#         norm_interaction_matrix=T.maximum(0.0, interaction_matrix)
+        return T.dot(q_matrix, norm_interaction_matrix.T)/T.sum(norm_interaction_matrix.T, axis=0).dimshuffle('x',0) #(len, para_len)
     batch_q_reps, updates = theano.scan(fn=example_in_batch,
                                    outputs_info=None,
                                    sequences=[para_reps, questions_reps_tensor])    #batch_q_reps (batch, hidden, para_len)
@@ -204,14 +187,25 @@ def evaluate_lenet5(learning_rate=0.0001, n_epochs=2000, batch_size=10, test_bat
     span_6=T.concatenate([para_reps_tensor4score[:,:,:-5], para_reps_tensor4score[:,:,5:]], axis=1) #(batch, 2*hidden ,para_len-5)
     span_7=T.concatenate([para_reps_tensor4score[:,:,:-6], para_reps_tensor4score[:,:,6:]], axis=1) #(batch, 2*hidden ,para_len-6)
 
-    span_reps=T.concatenate([span_1, span_2, span_3, span_4, span_5, span_6, span_7], axis=2) #(batch, 2*hidden, 7*para_len-21)
+    span_8=T.concatenate([para_reps_tensor4score[:,:,:-7], para_reps_tensor4score[:,:,7:]], axis=1) #(batch, 2*hidden ,para_len-7)
+    span_9=T.concatenate([para_reps_tensor4score[:,:,:-8], para_reps_tensor4score[:,:,8:]], axis=1) #(batch, 2*hidden ,para_len-8)
+    span_10=T.concatenate([para_reps_tensor4score[:,:,:-9], para_reps_tensor4score[:,:,9:]], axis=1) #(batch, 2*hidden ,para_len-9)
+    span_11=T.concatenate([para_reps_tensor4score[:,:,:-10], para_reps_tensor4score[:,:,10:]], axis=1) #(batch, 2*hidden ,para_len-10)
+    span_12=T.concatenate([para_reps_tensor4score[:,:,:-11], para_reps_tensor4score[:,:,11:]], axis=1) #(batch, 2*hidden ,para_len-11)
+    span_13=T.concatenate([para_reps_tensor4score[:,:,:-12], para_reps_tensor4score[:,:,12:]], axis=1) #(batch, 2*hidden ,para_len-12)
 
+    span_reps=T.concatenate([span_1, span_2, span_3, span_4, span_5, span_6, span_7,
+                             span_8, span_9, span_10, span_11, span_12, span_13], axis=2) #(batch, 2*hidden, 13*para_len-78)
+    test_span_reps=T.concatenate([span_1, span_2, span_3, span_4, span_5, span_6, span_7], axis=2) #(batch, 2*hidden, 5*para_len-10)  #, span_6, span_7
     #score each span reps
     norm_U_a=normalize_matrix(U_a)
-    span_scores_tensor=T.dot(span_reps.dimshuffle(0,2,1), norm_U_a)  #(batch, 7*para_len-21, 1)
-    span_scores=T.nnet.softmax(span_scores_tensor.reshape((true_batch_size, 7*paragraph.shape[1]-21))) #(batch, 7*para_len-21)
-    test_return=T.argmax(span_scores, axis=1) #batch
+    span_scores_tensor=T.dot(span_reps.dimshuffle(0,2,1), norm_U_a)  #(batch, 13*para_len-78, 1)
+    span_scores=T.nnet.softmax(span_scores_tensor.reshape((true_batch_size, 13*paragraph.shape[1]-78))) #(batch, 7*para_len-21)
     loss=-T.sum(T.log(span_scores[T.arange(true_batch_size), gold_indices]))
+    
+    test_span_scores_tensor=T.dot(test_span_reps.dimshuffle(0,2,1), norm_U_a)  #(batch, 7*para_len-21, 1)
+    test_span_scores=T.nnet.softmax(test_span_scores_tensor.reshape((true_batch_size, 7*paragraph.shape[1]-21))) #(batch, 7*para_len-21)    
+    test_return=T.argmax(test_span_scores, axis=1) #batch
 
 
     #params = layer3.params + layer2.params + layer1.params+ [conv_W, conv_b]
@@ -225,10 +219,10 @@ def evaluate_lenet5(learning_rate=0.0001, n_epochs=2000, batch_size=10, test_bat
     for para_i in params:
         eps_p=numpy.zeros_like(para_i.get_value(borrow=True),dtype=theano.config.floatX)
         accumulator.append(theano.shared(eps_p, borrow=True))
-
+  
     # create a list of gradients for all model parameters
     grads = T.grad(cost, params)
-
+  
     updates = []
     for param_i, grad_i, acc_i in zip(params, grads, accumulator):
 #         print grad_i.type
@@ -236,7 +230,7 @@ def evaluate_lenet5(learning_rate=0.0001, n_epochs=2000, batch_size=10, test_bat
         updates.append((param_i, param_i - learning_rate * grad_i / (T.sqrt(acc)+1e-8)))   #AdaGrad
         updates.append((acc_i, acc))
 
-
+#     updates=Adam(cost, params, lr=0.0001)
 
     train_model = theano.function([paragraph, questions,gold_indices, para_mask, q_mask, extraF], cost, updates=updates,on_unused_input='ignore')
 
