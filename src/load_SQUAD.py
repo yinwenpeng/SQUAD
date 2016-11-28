@@ -1690,7 +1690,7 @@ def  load_dev_or_test_AI2(word2id, para_len_limit, q_len_limit):
     doc_size=len(data['data'])
 #     print 'doc_size:', doc_size
 
-#     word2vec=load_word2vec()
+    word2vec=load_word2vec()
 
 
     para_size=0
@@ -1727,7 +1727,7 @@ def  load_dev_or_test_AI2(word2id, para_len_limit, q_len_limit):
                 q_id = data['data'][i]['paragraphs'][j]['qas'][q]['id']
 #                 print 'q_id:', q_id
                 question_wordlist=tokenize(question_q.strip())
-                truncate_paragraph_wordlist=paragraph_wordlist#truncate_paragraph_by_question(word2vec, paragraph_wordlist, question_wordlist, 1)
+                truncate_paragraph_wordlist=truncate_paragraph_by_question(word2vec, paragraph_wordlist, question_wordlist, 1)  #paragraph_wordlist#
                 truncate_paragraph_idlist=strs2ids(truncate_paragraph_wordlist, word2id)
                 truncate_para_len=len(truncate_paragraph_wordlist)
                 feature_matrix_q=extra_features(stop_words, truncate_paragraph_wordlist, question_wordlist)
