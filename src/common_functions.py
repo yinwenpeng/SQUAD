@@ -1239,6 +1239,7 @@ def dropout_standard(is_train, input, p, rng):
     mask = srng.binomial(n = 1, p = 1-p, size = input.shape, dtype = theano.config.floatX)
     return  T.switch(T.eq(is_train, 1), input * mask, input * (1 - p))
 
+
 class Average_Pooling_RNN(object):
     """The input is output of Conv: a tensor.  The output here should also be tensor"""
 
@@ -1681,8 +1682,7 @@ def dropout_layer(state_before, use_noise, trng):
     proj = T.switch(use_noise,
                          (state_before *
                           trng.binomial(state_before.shape,
-                                        p=0.5, n=1,
-                                        dtype=state_before.dtype)),
+                                        p=0.5, n=1)),
                          state_before * 0.5)
     return proj
 
