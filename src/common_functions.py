@@ -437,20 +437,13 @@ class Bd_GRU_Batch_Tensor_Input_with_Mask(object):
 class Bd_GRU_Batch_Tensor_Input_with_Mask_Concate(object):
     # Bidirectional GRU Layer.
     def __init__(self, X, Mask, hidden_dim, U, W, b, Ub, Wb, bb):
-        fwd = GRU_Batch_Tensor_Input_with_Mask(X, Mask, hidden_dim/2, U, W, b)
-        bwd = GRU_Batch_Tensor_Input_with_Mask(X[:,:,::-1], Mask[:,::-1], hidden_dim/2, Ub, Wb, bb)
+        fwd = GRU_Batch_Tensor_Input_with_Mask(X, Mask, hidden_dim, U, W, b)
+        bwd = GRU_Batch_Tensor_Input_with_Mask(X[:,:,::-1], Mask[:,::-1], hidden_dim, Ub, Wb, bb)
 
-        output_tensor=T.concatenate([fwd.output_tensor, bwd.output_tensor[:,:,::-1]], axis=1)
-        #for word level rep
-#         output_tensor=fwd.output_tensor+bwd.output_tensor[:,:,::-1]
-        self.output_tensor=output_tensor#+X[:,:output_tensor.shape[1],:] # (batch, 2*hidden, len)
-        
+        output_tensor=T.concatenate([fwd.output_tensor, bwd.output_tensor[:,:,::-1]], axis=1) #(batch, 2*hidden, len)
+        self.output_tensor=output_tensor  ##(batch, 2*hidden, len)        
         #for final sentence rep
-#         sent_output_tensor=fwd.output_tensor+bwd.output_tensor
-#         self.output_tensor=output_tensor+X # add initialized emb
-#         self.output_sent_rep=self.output_tensor[:,:,-1]
-#         self.output_sent_rep_maxpooling=fwd.output_tensor[:,:,-1]+bwd.output_tensor[:,:,-1] #(batch, hidden)
-        self.output_sent_rep_maxpooling=T.concatenate([fwd.output_tensor[:,:,-1], bwd.output_tensor[:,:,-1]], axis=1) #(batch, 2*hidden)
+        self.output_sent_rep_maxpooling=T.concatenate([fwd.output_tensor[:,:,-1], bwd.output_tensor[:,:,0]], axis=1) #(batch, 2*hidden)
 class GRU_Batch_Tensor_Input_with_Mask(object):
     def __init__(self, X, Mask, hidden_dim, U, W, b):
         #now, X is (batch, emb_size, sentlength)
@@ -491,7 +484,7 @@ class Bd_LSTM_Batch_Tensor_Input_with_Mask(object):
 #         output_tensor=T.concatenate([fwd.output_tensor, bwd.output_tensor[:,:,::-1]], axis=1)
         #for word level rep
         output_tensor=fwd.output_tensor+bwd.output_tensor[:,:,::-1]
-        self.output_tensor=output_tensor+X[:,:output_tensor.shape[1],:] # add initialized emb
+        self.output_tensor=output_tensor#+X[:,:output_tensor.shape[1],:] # add initialized emb
         
         #for final sentence rep
 #         sent_output_tensor=fwd.output_tensor+bwd.output_tensor
@@ -499,6 +492,20 @@ class Bd_LSTM_Batch_Tensor_Input_with_Mask(object):
 #         self.output_sent_rep=self.output_tensor[:,:,-1]
         self.output_sent_rep_maxpooling=fwd.output_tensor[:,:,-1]+bwd.output_tensor[:,:,-1]
 #         self.output_sent_rep_maxpooling=T.concatenate([fwd.output_tensor[:,:,-1], bwd.output_tensor[:,:,-1]], axis=1)
+
+class Bd_LSTM_Batch_Tensor_Input_with_Mask_Concate(object):
+    # Bidirectional GRU Layer.
+    def __init__(self, X, Mask, hidden_dim, fwd_tparams, bwd_tparams):
+        fwd = LSTM_Batch_Tensor_Input_with_Mask(X, Mask, hidden_dim, fwd_tparams)
+        bwd = LSTM_Batch_Tensor_Input_with_Mask(X[:,:,::-1], Mask[:,::-1], hidden_dim, bwd_tparams)
+
+        output_tensor=T.concatenate([fwd.output_tensor, bwd.output_tensor[:,:,::-1]], axis=1)
+        #for word level rep
+#         output_tensor=fwd.output_tensor+bwd.output_tensor[:,:,::-1]
+        self.output_tensor=output_tensor#(batch, 2*hidden ,len)       
+        #for final sentence rep
+#         self.output_sent_rep_maxpooling=fwd.output_tensor[:,:,-1]+bwd.output_tensor[:,:,-1]
+        self.output_sent_rep_maxpooling=T.concatenate([fwd.output_tensor[:,:,-1], bwd.output_tensor[:,:,0]], axis=1) #(batch, 2*hidden)
 class LSTM_Batch_Tensor_Input_with_Mask(object):
 #     def __init__(self, X, Mask, hidden_dim, U, W, b):
     def __init__(self, X, Mask, hidden_size, tparams ):

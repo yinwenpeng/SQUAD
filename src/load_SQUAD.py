@@ -1690,7 +1690,7 @@ def  load_dev_or_test_AI2(word2id, para_len_limit, q_len_limit):
     doc_size=len(data['data'])
 #     print 'doc_size:', doc_size
 
-    # word2vec=load_word2vec()
+#     word2vec=load_word2vec()
 
 
     para_size=0
