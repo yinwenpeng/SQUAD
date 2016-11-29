@@ -43,10 +43,10 @@ Train  max_para_len:, 653 max_q_len: 40
 Dev  max_para_len:, 629 max_q_len: 33
 '''
 
-def evaluate_lenet5(learning_rate=0.1, n_epochs=2000, batch_size=500, test_batch_size=500, emb_size=300, hidden_size=300,
+def evaluate_lenet5(learning_rate=0.1, n_epochs=2000, batch_size=500, test_batch_size=500, emb_size=10, hidden_size=10,
                     L2_weight=0.0001, margin=0.5,
                     train_size=4000000, test_size=1000, 
-                    max_context_len=25, max_span_len=7, max_q_len=40, max_EM=0.052):
+                    max_context_len=25, max_span_len=7, max_q_len=40, max_EM=0.0):
 
     model_options = locals().copy()
     print "model options", model_options
@@ -56,9 +56,7 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=2000, batch_size=500, test_batch
 
 
 
-    test_ground_truth,test_candidates,test_questions,test_questions_mask,test_lefts,test_lefts_mask,test_spans,test_spans_mask,test_rights,test_rights_mask=load_dev_hinrich(word2id, test_size, max_context_len, max_span_len, max_q_len)
-    
-    
+    test_ground_truth,all_candidates_f1,test_questions,test_questions_mask,test_lefts,test_lefts_mask,test_spans,test_spans_mask,test_rights,test_rights_mask=load_dev_hinrich(word2id, test_size, max_context_len, max_span_len, max_q_len)
     
     
 
@@ -68,9 +66,9 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=2000, batch_size=500, test_batch
 
     rand_values=random_value_normal((overall_vocab_size+1, emb_size), theano.config.floatX, np.random.RandomState(1234))
 #     rand_values[0]=np.array(np.zeros(emb_size),dtype=theano.config.floatX)
-    id2word = {y:x for x,y in word2id.iteritems()}
-    word2vec=load_word2vec()
-    rand_values=load_word2vec_to_init(rand_values, id2word, word2vec)
+#     id2word = {y:x for x,y in word2id.iteritems()}
+#     word2vec=load_word2vec()
+#     rand_values=load_word2vec_to_init(rand_values, id2word, word2vec)
     embeddings=theano.shared(value=rand_values, borrow=True)
 
 
@@ -271,6 +269,8 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=2000, batch_size=500, test_batch
         for para_id in train_batch_start:
             # iter means how many batches have been runed, taking into loop
             iter = (epoch - 1) * n_train_batches + iter_accu +1
+            if iter%100==0:
+                print 'iter:', iter
             iter_accu+=1
             train_id_list=[[train_odd_id, train_odd_id+1] for train_odd_id in train_odd_ids[para_id:para_id+batch_size]]
             train_id_list=sum(train_id_list,[])
@@ -304,7 +304,7 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=2000, batch_size=500, test_batch
                     test_example_rights_mask=test_rights_mask[test_pair_id]
                     test_example_questions=test_questions[test_pair_id]
                     test_example_questions_mask=test_questions_mask[test_pair_id]       
-                    test_example_candidates=test_candidates[test_pair_id]
+                    test_example_candidates_f1=all_candidates_f1[test_pair_id]
                     
                     
                     
@@ -321,7 +321,7 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=2000, batch_size=500, test_batch
                         test_example_rights_mask+=test_example_rights_mask[-1:]*pad_size
                         test_example_questions+=test_example_questions[-1:]*pad_size
                         test_example_questions_mask+=test_example_questions_mask[-1:]*pad_size 
-                        test_example_candidates+=test_example_candidates[-1:]*pad_size
+                        test_example_candidates_f1+=test_example_candidates_f1[-1:]*pad_size
                         
                         test_example_size=test_batch_size
                     
@@ -344,17 +344,17 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=2000, batch_size=500, test_batch
                                     np.asarray(test_example_rights_mask[test_para_id:test_para_id+test_batch_size], dtype=theano.config.floatX),
                                     np.asarray(test_example_questions[test_para_id:test_para_id+test_batch_size], dtype='int32'),
                                     np.asarray(test_example_questions_mask[test_para_id:test_para_id+test_batch_size], dtype=theano.config.floatX))
-                        candidate_list=test_example_candidates[test_para_id:test_para_id+test_batch_size]
+                        candidate_f1_list=test_example_candidates_f1[test_para_id:test_para_id+test_batch_size]
                         all_simi_list+=list(simi_return_vector)
-                        all_cand_list+=candidate_list
-                    top1_cand=all_cand_list[np.argsort(all_simi_list)[-1]]
+                        all_cand_list+=candidate_f1_list
+                    top1_f1=all_cand_list[np.argsort(all_simi_list)[-1]]
 #                     print top1_cand, test_ground_truth[test_pair_id]
 
-                    if top1_cand == test_ground_truth[test_pair_id]:
+                    if top1_f1 == 1.0:
                         exact_match+=1
-                    F1=macrof1(top1_cand, test_ground_truth[test_pair_id])
+#                     F1=macrof1(top1_cand, test_ground_truth[test_pair_id])
 #                     print '\t\t\t', F1
-                    F1_match+=F1
+                    F1_match+=top1_f1
 #                         match_amount=len(pred_ans_set & q_gold_ans_set)
 # #                         print 'q_gold_ans_set:', q_gold_ans_set
 # #                         print 'pred_ans_set:', pred_ans_set
@@ -368,7 +368,7 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=2000, batch_size=500, test_batch
                 if exact_acc> max_exact_acc:
                     max_exact_acc=exact_acc
                     if max_exact_acc > max_EM:
-                        store_model_to_file(rootPath+'Best_Para_'+str(max_EM), params)
+                        store_model_to_file(rootPath+'Best_Para_'+str(max_exact_acc), params)
                         print 'Finished storing best  params at:', max_exact_acc
                 print 'current average F1:', F1_acc, '\t\tmax F1:', max_F1_acc, 'current  exact:', exact_acc, '\t\tmax exact_acc:', max_exact_acc
 

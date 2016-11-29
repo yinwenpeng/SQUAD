@@ -425,7 +425,7 @@ class Bd_GRU_Batch_Tensor_Input_with_Mask(object):
 #         output_tensor=T.concatenate([fwd.output_tensor, bwd.output_tensor[:,:,::-1]], axis=1)
         #for word level rep
         output_tensor=fwd.output_tensor+bwd.output_tensor[:,:,::-1]
-        self.output_tensor=output_tensor+X[:,:output_tensor.shape[1],:] # add initialized emb
+        self.output_tensor=output_tensor#+X[:,:output_tensor.shape[1],:] # add initialized emb
         
         #for final sentence rep
 #         sent_output_tensor=fwd.output_tensor+bwd.output_tensor

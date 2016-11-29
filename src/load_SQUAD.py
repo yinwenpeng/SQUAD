@@ -29,7 +29,7 @@ def normalize_answer(s):
     def remove_punc(text):
         exclude = set(string.punctuation)
         return ''.join(ch for ch in text if ch not in exclude)
-# 
+#
 #     def lower(text):
 #         return text.lower()
 
@@ -43,7 +43,7 @@ def form_pos2id():
 
 def form_ner2id():
     ner_list=['LOCATION', 'PERSON', 'ORGANIZATION', 'MONEY', 'PERCENT', 'DATE', 'TIME', 'O']
-    return dict(zip(ner_list, range(len(ner_list))))    
+    return dict(zip(ner_list, range(len(ner_list))))
 
 def tokenize(str):
     listt=TreebankWordTokenizer().tokenize(str)
@@ -77,10 +77,10 @@ def poslist_nerlist_2_featurematrix(poslist, nerlist, pos_size, ner_size):
         pos_featurematrix.append(features)
     for ner in nerlist:
         features=[0.0]*ner+[1.0]+[0.0]*(ner_size-ner-1)
-        ner_featurematrix.append(features)     
-    return pos_featurematrix, ner_featurematrix   
-    
-        
+        ner_featurematrix.append(features)
+    return pos_featurematrix, ner_featurematrix
+
+
 def transform_raw_paragraph(raw_word_list):
     #concatenate upper case words
     new_para=[]
@@ -110,7 +110,7 @@ def strs2ids_onehot(str_list, word2id, size):
 
 def strs2ids_with_max(str_list, word2id, size):
     return [word2id.get(word, size-1) for word in str_list]
-    
+
 def strs2ids(str_list, word2id):
     ids=[]
     for word in str_list:
@@ -361,7 +361,7 @@ def  load_dev_or_test_google(word2vec, word2id, para_len_limit, q_len_limit):
     para_text_list=[]
     q_ansSet_list=[]
     stop_words=load_stopwords()
-    
+
     past_tag=''
     for line in read_file:
         parts=line.strip().split('\t')
@@ -374,21 +374,21 @@ def  load_dev_or_test_google(word2vec, word2id, para_len_limit, q_len_limit):
             pos_list=map(int,parts[1].split())
             past_tag=''
         if parts[0]=='N:':#is NER
-            ner_list=map(int,parts[1].split())   
+            ner_list=map(int,parts[1].split())
             past_tag=''
         if parts[0]=='A:':#is labels
-#             gold_label_q=map(int,parts[1].split())  
+#             gold_label_q=map(int,parts[1].split())
             q_ansSet=set()
             for i in range(1, len(parts)):
                 q_ansSet.add(parts[i])
-            past_tag='' 
+            past_tag=''
         if parts[0]=='Q:':#is question
             question_wordlist=parts[1].split()
-            question_idlist=strs2ids(question_wordlist, word2id)   
+            question_idlist=strs2ids(question_wordlist, word2id)
             q_len=len(question_idlist)
             past_tag='Q'
-        
-        if past_tag =='Q': #store    
+
+        if past_tag =='Q': #store
 
 
             truncate_paragraph_wordlist, sentB_list=truncate_paragraph_by_question_returnBounary(word2vec, paragraph_wordlist, question_wordlist, 1)
@@ -401,7 +401,7 @@ def  load_dev_or_test_google(word2vec, word2id, para_len_limit, q_len_limit):
             for pair in sentB_list:
                 truncate_pos_list+=pos_list[pair[0]:pair[1]]
                 truncate_ner_list+=ner_list[pair[0]:pair[1]]
-            
+
             if len(truncate_pos_list)!=truncate_para_len or len(truncate_ner_list)!=truncate_para_len:
                 print 'len(truncate_pos_list)!=truncate_para_len or len(truncate_ner_list)!=truncate_para_len:', len(truncate_pos_list), len(truncate_ner_list), truncate_para_len
                 exit(0)
@@ -413,7 +413,7 @@ def  load_dev_or_test_google(word2vec, word2id, para_len_limit, q_len_limit):
 #             for i in range(len(ner_list)):
 #                 if len(ner_feature_matrix[i])!=ner_size:
 #                     print 'len(ner_feature_matrix)!=ner_size:', len(ner_feature_matrix[i])
-#                     exit(0)                
+#                     exit(0)
 
             #first paragraph
             pad_para_len=max_para_len-truncate_para_len
@@ -1235,18 +1235,18 @@ def  load_train_google(para_len_limit, q_len_limit):
             pos_list=map(int,parts[1].split())
             past_tag=''
         if parts[0]=='N:':#is NER
-            ner_list=map(int,parts[1].split())   
+            ner_list=map(int,parts[1].split())
             past_tag=''
         if parts[0]=='L:':#is labels
-            gold_label_q=map(int,parts[1].split())  
-            past_tag='' 
+            gold_label_q=map(int,parts[1].split())
+            past_tag=''
         if parts[0]=='Q:':#is question
             question_wordlist=parts[1].split()
-            question_idlist=strs2ids(question_wordlist, word2id)   
+            question_idlist=strs2ids(question_wordlist, word2id)
             q_len=len(question_idlist)
             past_tag='Q'
-        
-        if past_tag =='Q': #store         
+
+        if past_tag =='Q': #store
 
             if para_len != len(pos_list) or para_len != len(ner_list) or para_len != len(gold_label_q):
                 continue
@@ -1259,7 +1259,7 @@ def  load_train_google(para_len_limit, q_len_limit):
             if pad_para_len>0:
                 paded_paragraph_idlist=[0]*pad_para_len+paragraph_idlist
                 paded_para_mask_i=[0.0]*pad_para_len+[1.0]*para_len
-                
+
                 paded_feature_matrix_q=[[0]*3]*pad_para_len+feature_matrix_q
                 paded_pos_feature_matrix=[[0.0]*pos_size]*pad_para_len+pos_feature_matrix
                 paded_ner_feature_matrix=[[0.0]*ner_size]*pad_para_len+ner_feature_matrix
@@ -1290,12 +1290,12 @@ def  load_train_google(para_len_limit, q_len_limit):
                 paded_q_mask_i=([1.0]*q_len)[:max_Q_len]
             Q_list.append(paded_question_idlist)
             mask.append(paded_q_mask_i)
-                
-            qa_size+=1    
+
+            qa_size+=1
 #             if qa_size == size_control:
 #                 break
-                
-            
+
+
 
     print 'Load train set', qa_size, 'question-answer pairs'
     print 'Train Vocab size:', len(word2id)
@@ -1328,10 +1328,10 @@ def decode_predict_id(value, wordlist):
     return ' '.join(wordlist[span_start:span_start+span_len])
 
 def decode_predict_id_AI2(value, para_len, wordlist):
-    
+
     start=value/para_len
     end=value%para_len
-    
+
     return ' '.join(wordlist[start:end+1])
 
 
@@ -1402,7 +1402,7 @@ def  store_SQUAD_train():
             paragraph=data['data'][i]['paragraphs'][j]['context']
             paragraph_wordlist=tokenize(paragraph.strip())
             pos_list, ner_list= pos_and_ner(paragraph_wordlist, ner_tagger, pos2id, ner2id, pos_size, ner_size)
-            
+
             for q in range(question_size_j):
                 question_q=data['data'][i]['paragraphs'][j]['qas'][q]['question']
                 question_wordlist=tokenize(question_q.strip())
@@ -1424,7 +1424,7 @@ def  store_SQUAD_train():
 #                 answer_right_wordlist=tokenize(answer_right)
 #                 answer_right_size=len(answer_right_wordlist)
                 gold_label_q=[0]*answer_left_size+[1]*answer_len+[0]*(len(paragraph_wordlist)-answer_left_size-answer_len)
-                
+
 #                 if len(gold_label_q)!=len(paragraph_wordlist):
 # #                     print 'len(gold_label_q)!=len(paragraph_wordlist):', len(gold_label_q), len(paragraph_wordlist)
 # #                     print 'paragraph:', paragraph
@@ -1436,7 +1436,7 @@ def  store_SQUAD_train():
 
 #                 pos_list, ner_list= pos_and_ner(paragraph_wordlist, ner_tagger, pos2id, ner2id, pos_size, ner_size)
 
-                
+
                 #write into file
                 writefile.write('W:\t'+' '.join(paragraph_wordlist)+'\n')
                 writefile.write('P:\t'+' '.join(map(str,pos_list))+'\n')
@@ -1444,7 +1444,7 @@ def  store_SQUAD_train():
                 writefile.write('L:\t'+' '.join(map(str, gold_label_q))+'\n')
                 writefile.write('Q:\t'+' '.join(question_wordlist)+'\n')
 
-                
+
             qa_size+=question_size_j
             print 'pair size:', qa_size#, 'noise:', noise
         para_size+=para_size_i
@@ -1480,7 +1480,7 @@ def  store_SQUAD_dev():
             paragraph=data['data'][i]['paragraphs'][j]['context']
             paragraph_wordlist=tokenize(paragraph.strip())
             pos_list, ner_list= pos_and_ner(paragraph_wordlist, ner_tagger, pos2id, ner2id, pos_size, ner_size)
-            
+
             for q in range(question_size_j):
                 question_q=data['data'][i]['paragraphs'][j]['qas'][q]['question']
                 question_wordlist=tokenize(question_q.strip())
@@ -1506,7 +1506,7 @@ def  store_SQUAD_dev():
                 for ans in range(answer_no):
                     answer_q=data['data'][i]['paragraphs'][j]['qas'][q]['answers'][ans]['text']
                     q_ansSet.add(' '.join(tokenize(answer_q.strip())))
-                
+
 #                 if len(gold_label_q)!=len(paragraph_wordlist):
 # #                     print 'len(gold_label_q)!=len(paragraph_wordlist):', len(gold_label_q), len(paragraph_wordlist)
 # #                     print 'paragraph:', paragraph
@@ -1518,16 +1518,16 @@ def  store_SQUAD_dev():
 
 #                 pos_list, ner_list= pos_and_ner(paragraph_wordlist, ner_tagger, pos2id, ner2id, pos_size, ner_size)
 
-                
+
                 #write into file
                 writefile.write('W:\t'+' '.join(paragraph_wordlist)+'\n')
                 writefile.write('P:\t'+' '.join(map(str,pos_list))+'\n')
                 writefile.write('N:\t'+' '.join(map(str,ner_list))+'\n')
                 writefile.write('A:\t'+'\t'.join(q_ansSet)+'\n')
                 writefile.write('Q:\t'+' '.join(question_wordlist)+'\n')
-                
 
-                
+
+
             qa_size+=question_size_j
             print 'pair size:', qa_size#, 'noise:', noise
         para_size+=para_size_i
@@ -1676,7 +1676,7 @@ def  load_train_AI2(para_len_limit, q_len_limit):
     print 'Load train set', para_size, 'paragraphs,', qa_size, 'question-answer pairs'
     print 'Train Vocab size:', len(word2id)
 #     exit(0)
-    return para_list, Q_list, start_list, end_list, para_mask, mask, word2id, feature_matrixlist    
+    return para_list, Q_list, start_list, end_list, para_mask, mask, word2id, feature_matrixlist
 
 def  load_dev_or_test_AI2(word2id, para_len_limit, q_len_limit):
 #     Dev  max_para_len:, 629 max_q_len: 33
@@ -1690,7 +1690,7 @@ def  load_dev_or_test_AI2(word2id, para_len_limit, q_len_limit):
     doc_size=len(data['data'])
 #     print 'doc_size:', doc_size
 
-    word2vec=load_word2vec()
+    # word2vec=load_word2vec()
 
 
     para_size=0
@@ -1727,7 +1727,7 @@ def  load_dev_or_test_AI2(word2id, para_len_limit, q_len_limit):
                 q_id = data['data'][i]['paragraphs'][j]['qas'][q]['id']
 #                 print 'q_id:', q_id
                 question_wordlist=tokenize(question_q.strip())
-                truncate_paragraph_wordlist=truncate_paragraph_by_question(word2vec, paragraph_wordlist, question_wordlist, 1)  #paragraph_wordlist#
+                truncate_paragraph_wordlist=paragraph_wordlist#truncate_paragraph_by_question(word2vec, paragraph_wordlist, question_wordlist, 1)  #paragraph_wordlist#
                 truncate_paragraph_idlist=strs2ids(truncate_paragraph_wordlist, word2id)
                 truncate_para_len=len(truncate_paragraph_wordlist)
                 feature_matrix_q=extra_features(stop_words, truncate_paragraph_wordlist, question_wordlist)

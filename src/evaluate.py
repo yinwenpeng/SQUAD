@@ -6,7 +6,7 @@ import re
 import argparse
 import json
 import sys
-
+import codecs
 
 def normalize_answer(s):
     """Lower text and remove punctuation, articles and extra whitespace."""
@@ -81,14 +81,14 @@ def standard_eval( dataset_file, prediction_file):
 #     parser.add_argument('dataset_file', help='Dataset file')
 #     parser.add_argument('prediction_file', help='Prediction File')
 #     args = parser.parse_args()
-    with open(dataset_file) as dataset_file:
+    with codecs.open(dataset_file,'r', 'utf-8') as dataset_file:
         dataset_json = json.load(dataset_file)
 #         if (dataset_json['version'] != expected_version):
 #             print('Evaluation expects v-' + expected_version +
 #                   ', but got dataset with v-' + dataset_json['version'],
 #                   file=sys.stderr)
         dataset = dataset_json['data']
-    with open(prediction_file) as prediction_file:
+    with codecs.open(prediction_file, 'r', 'utf-8') as prediction_file:
         predictions = json.load(prediction_file)
     result_dict=evaluate(dataset, predictions)
     f1=result_dict.get('f1')
