@@ -221,11 +221,18 @@ def evaluate_lenet5(learning_rate=0.01, n_epochs=2000, batch_size=60, test_batch
 
     #test
     co_simi_batch_matrix=T.batched_dot((para_mask*start_scores).dimshuffle(0,1,'x'), (para_mask*end_scores).dimshuffle(0,'x',1)) #(batch, para_len, para_len)
+    #reset lower dialgonal
     cols = numpy.concatenate([numpy.array(range(i), dtype=numpy.uint) for i in xrange(para_len_limit)])
     rows = numpy.concatenate([numpy.array([i]*i, dtype=numpy.uint) for i in xrange(para_len_limit)])
     c = T.set_subtensor(co_simi_batch_matrix[:,rows, cols], theano.shared(numpy.zeros(para_len_limit*(para_len_limit-1)/2)))
-
-    test_return=T.argmax(c.reshape((true_batch_size, para_len_limit*para_len_limit)), axis=1) #batch
+    #reset longer than 7 size
+    cols2 = numpy.concatenate([numpy.array(range(i+7,para_len_limit), dtype=numpy.uint) for i in xrange(para_len_limit-7)])
+    rows2 = numpy.concatenate([numpy.array([i]*(para_len_limit-7-i), dtype=numpy.uint) for i in xrange(para_len_limit-7)])
+    c2 = T.set_subtensor(c[:,rows2, cols2], theano.shared(numpy.zeros((para_len_limit-7)*(para_len_limit-6)/2)))
+    
+    
+    
+    test_return=T.argmax(c2.reshape((true_batch_size, para_len_limit*para_len_limit)), axis=1) #batch
 
 
     #params = layer3.params + layer2.params + layer1.params+ [conv_W, conv_b]
