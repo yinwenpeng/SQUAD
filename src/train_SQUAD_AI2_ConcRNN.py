@@ -35,10 +35,11 @@ import json
 '''
 1) dropout
 2) combine google and ai2
+3) consider word-wise classification again?
 '''
 
-def evaluate_lenet5(learning_rate=0.01, n_epochs=2000, batch_size=60, test_batch_size=200, emb_size=300, hidden_size=50,
-                    L2_weight=0.0001, para_len_limit=300, q_len_limit=30, max_EM=50.0):
+def evaluate_lenet5(learning_rate=0.01, n_epochs=2000, batch_size=10, test_batch_size=200, emb_size=300, hidden_size=100,
+                    L2_weight=0.0001, para_len_limit=300, q_len_limit=30, max_EM=40.0):
 
     model_options = locals().copy()
     print "model options", model_options
@@ -100,7 +101,11 @@ def evaluate_lenet5(learning_rate=0.01, n_epochs=2000, batch_size=60, test_batch
     fwd_e1=create_LSTM_para(rng, 8*hidden_size, hidden_size)  #create_LSTM_para(rng, word_dim, hidden_dim)
     bwd_e1=create_LSTM_para(rng, 8*hidden_size, hidden_size)
     paragraph_para_e1=fwd_e1.values()+ bwd_e1.values()
-    
+
+    fwd_e11=create_LSTM_para(rng, 2*hidden_size, hidden_size)  #create_LSTM_para(rng, word_dim, hidden_dim)
+    bwd_e11=create_LSTM_para(rng, 2*hidden_size, hidden_size)
+    paragraph_para_e11=fwd_e11.values()+ bwd_e11.values()
+
     fwd_e2=create_LSTM_para(rng, 2*hidden_size, hidden_size)  #create_LSTM_para(rng, word_dim, hidden_dim)
     bwd_e2=create_LSTM_para(rng, 2*hidden_size, hidden_size)
     paragraph_para_e2=fwd_e2.values()+ bwd_e2.values()
@@ -109,9 +114,9 @@ def evaluate_lenet5(learning_rate=0.01, n_epochs=2000, batch_size=60, test_batch
 #     U_e2_b, W_e2_b, b_e2_b=create_GRU_para(rng, hidden_size, hidden_size)
 #     paragraph_para_e2=[U_e2, W_e2, b_e2, U_e2_b, W_e2_b, b_e2_b]
 
-    fwd_Q=create_LSTM_para(rng, emb_size, hidden_size)  #create_LSTM_para(rng, word_dim, hidden_dim)
-    bwd_Q=create_LSTM_para(rng, emb_size, hidden_size)
-    Q_para=fwd_Q.values()+ bwd_Q.values()
+#     fwd_Q=create_LSTM_para(rng, emb_size, hidden_size)  #create_LSTM_para(rng, word_dim, hidden_dim)
+#     bwd_Q=create_LSTM_para(rng, emb_size, hidden_size)
+#     Q_para=fwd_Q.values()+ bwd_Q.values()
 
 #     W_a1 = create_ensemble_para(rng, hidden_size, hidden_size)# init_weights((2*hidden_size, hidden_size))
 #     W_a2 = create_ensemble_para(rng, hidden_size, hidden_size)
@@ -123,7 +128,7 @@ def evaluate_lenet5(learning_rate=0.01, n_epochs=2000, batch_size=60, test_batch
 #                                name='LR_b', borrow=True)
 
     HL_paras=[U_a1, U_a2, U_a3]
-    params = [embeddings]+paragraph_para+Q_para+paragraph_para_e1+HL_paras+paragraph_para_e2
+    params = [embeddings]+paragraph_para+paragraph_para_e1+paragraph_para_e11+HL_paras+paragraph_para_e2
 
 #     load_model_from_file(rootPath+'Best_Paras_AI2_31.210974456', params)
 
@@ -137,7 +142,7 @@ def evaluate_lenet5(learning_rate=0.01, n_epochs=2000, batch_size=60, test_batch
 
     Qs_emb = embeddings[questions.flatten()].reshape((true_batch_size, questions.shape[1], emb_size)).transpose((0, 2,1)) #(#questions, emb_size, maxsenlength)
 
-    questions_model=Bd_LSTM_Batch_Tensor_Input_with_Mask_Concate(X=Qs_emb, Mask=q_mask, hidden_dim=hidden_size, fwd_tparams=fwd_Q, bwd_tparams= bwd_Q)
+    questions_model=Bd_LSTM_Batch_Tensor_Input_with_Mask_Concate(X=Qs_emb, Mask=q_mask, hidden_dim=hidden_size, fwd_tparams=fwd_para, bwd_tparams= bwd_para)
     questions_reps_tensor=questions_model.output_tensor #(batch, 2*hidden ,q_len)
 #     questions_reps=questions_model.output_sent_rep_maxpooling.reshape((true_batch_size, 1, hidden_size)) #(batch, 1, hidden)
 #     questions_reps=T.repeat(questions_reps, para_reps.shape[2], axis=1)  #(batch, para_len, hidden)
@@ -165,17 +170,17 @@ def evaluate_lenet5(learning_rate=0.01, n_epochs=2000, batch_size=60, test_batch
     norm_U_a3=normalize_matrix(U_a3)
     def example_in_batch(para_matrix, q_matrix):
         #assume both are (2*hidden, len)
-        
+
         repeat_para_matrix_T=T.repeat(para_matrix.T, q_matrix.shape[1], axis=0) #(para_len*q_len, 2*hidden)
         repeat_q_matrix_3D = T.repeat(q_matrix.T.dimshuffle('x',0,1), para_matrix.shape[1], axis=0) #(para_len, q_len, 2*hidden)
         repeat_q_matrix_T= repeat_q_matrix_3D.reshape((repeat_q_matrix_3D.shape[0]*repeat_q_matrix_3D.shape[1], repeat_q_matrix_3D.shape[2])) #(para_len*q_len, 2*hidden)
-        
+
         ele_mult =repeat_para_matrix_T*repeat_q_matrix_T #(#(para_len*q_len, 2*hidden))
         overall_concv = T.concatenate([repeat_para_matrix_T, repeat_q_matrix_T, ele_mult], axis=1) ##(para_len*q_len, 6*hidden)
         scores=T.dot(overall_concv, norm_U_a3)  #(para_len*q_len,1)
         interaction_matrix=scores.reshape((para_matrix.shape[1], q_matrix.shape[1]))  #(para_len, q_len)
-        
-        
+
+
 #         transpose_para_matrix=para_matrix.T
 #         interaction_matrix=T.dot(transpose_para_matrix, q_matrix) #(para_len, q_len)
         norm_interaction_matrix=T.nnet.softmax(interaction_matrix)
@@ -195,7 +200,11 @@ def evaluate_lenet5(learning_rate=0.01, n_epochs=2000, batch_size=60, test_batch
     para_ensemble_model=Bd_LSTM_Batch_Tensor_Input_with_Mask_Concate(X=ensemble_para_reps_tensor, Mask=para_mask, hidden_dim=hidden_size,fwd_tparams=fwd_e1, bwd_tparams= bwd_e1)
     para_reps_tensor4score=para_ensemble_model.output_tensor #(batch, 2*hidden ,para_len)
 
-    Con_G_M=T.concatenate([ensemble_para_reps_tensor, para_reps_tensor4score], axis=1) #(batch, 10*hidden, para_len)
+    para_ensemble_model1=Bd_LSTM_Batch_Tensor_Input_with_Mask_Concate(X=para_reps_tensor4score, Mask=para_mask, hidden_dim=hidden_size,fwd_tparams=fwd_e11, bwd_tparams= bwd_e11)
+    para_reps_tensor4score1=para_ensemble_model1.output_tensor #(batch, 2*hidden ,para_len)
+
+
+    Con_G_M=T.concatenate([ensemble_para_reps_tensor, para_reps_tensor4score1], axis=1) #(batch, 10*hidden, para_len)
 
     #score for each para word
     norm_U_a=normalize_matrix(U_a1)
@@ -203,7 +212,7 @@ def evaluate_lenet5(learning_rate=0.01, n_epochs=2000, batch_size=60, test_batch
     start_scores=T.nnet.softmax(start_scores.reshape((true_batch_size, paragraph.shape[1]))) #(batch, para_len)
 
     # para_reps_tensor4score = T.concatenate([para_reps_tensor4score, start_scores.dimshuffle(0,'x',1)], axis=1)
-    para_ensemble_model2=Bd_LSTM_Batch_Tensor_Input_with_Mask_Concate(X=para_reps_tensor4score, Mask=para_mask, hidden_dim=hidden_size,fwd_tparams=fwd_e2, bwd_tparams= bwd_e2)
+    para_ensemble_model2=Bd_LSTM_Batch_Tensor_Input_with_Mask_Concate(X=para_reps_tensor4score1, Mask=para_mask, hidden_dim=hidden_size,fwd_tparams=fwd_e2, bwd_tparams= bwd_e2)
     para_reps_tensor4score2=para_ensemble_model2.output_tensor #(batch, 2*hidden ,para_len)
 
     Con_G_M2=T.concatenate([ensemble_para_reps_tensor, para_reps_tensor4score2], axis=1) #(batch, 10*hidden, para_len)
@@ -229,9 +238,9 @@ def evaluate_lenet5(learning_rate=0.01, n_epochs=2000, batch_size=60, test_batch
     cols2 = numpy.concatenate([numpy.array(range(i+7,para_len_limit), dtype=numpy.uint) for i in xrange(para_len_limit-7)])
     rows2 = numpy.concatenate([numpy.array([i]*(para_len_limit-7-i), dtype=numpy.uint) for i in xrange(para_len_limit-7)])
     c2 = T.set_subtensor(c[:,rows2, cols2], theano.shared(numpy.zeros((para_len_limit-7)*(para_len_limit-6)/2)))
-    
-    
-    
+
+
+
     test_return=T.argmax(c2.reshape((true_batch_size, para_len_limit*para_len_limit)), axis=1) #batch
 
 
