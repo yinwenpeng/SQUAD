@@ -1,5 +1,9 @@
 import numpy
 import theano
+
+from theano.scalar import Composite
+from theano.scalar import add, sub, true_div, mul
+
 import theano.tensor as T
 from theano.tensor.nnet import conv
 from cis.deep.utils.theano import debug_print
@@ -164,6 +168,50 @@ def create_rnn_para(rng, dim):
         b = theano.shared(value=b_values, borrow=True)
         return W, b
 
+
+def Wide_Conv_Narrow(rng, input_tensor3, batch, emb, length, hidden, width, W_wi, b_wi, W_na, b_na):
+    input_tensor4=input_tensor3.dimshuffle(0,'x',1,2) #(batch, 1, emb_size, len)
+    wide_filter_shape=(hidden, 1, emb, width)
+    wide_image_shape = (batch, 1, emb, length)
+    wide_layer=Wide_Conv_with_input_para(rng, input_tensor4, wide_filter_shape, wide_image_shape, W_wi, b_wi)
+    wide_output=wide_layer.wide_conv_out_tensor4 #(batch, 1, hidden, len+width-1)
+
+    na_filter_shape=(hidden, 1, hidden, width)
+    na_image_shape = (batch, 1, hidden, length+width-1)
+    na_layer=Conv_with_input_para(rng, wide_output, na_filter_shape, na_image_shape, W_na, b_na)
+    na_output_tensor3=na_layer.narrow_conv_out_tensor3 #(batch, hidden, len)    
+    
+    return na_output_tensor3
+
+class Wide_Conv_with_input_para(object):
+    """Pool Layer of a convolutional network """
+
+    def __init__(self, rng, input, filter_shape, image_shape, W, b):
+        #input: (batch, 1, hidden ,len)
+        assert image_shape[1] == filter_shape[1]
+        self.input = input
+        self.input_hidden=filter_shape[2]
+        self.W = W
+        self.b = b
+
+        # convolve input feature maps with filters
+        conv_out = conv.conv2d(input=input, filters=self.W,
+                filter_shape=filter_shape, image_shape=image_shape, border_mode='full')    #(batch, kernels, 2*hidden-1, len+filter_width-1)
+        
+        # add the bias term. Since the bias is a vector (1D array), we first
+        # reshape it to a tensor of shape (1,n_filters,1,1). Each bias will
+        # thus be broadcasted across mini-batches and feature map
+        # width & height
+        conv_with_bias = T.tanh(conv_out + self.b.dimshuffle('x', 0, 'x', 'x'))
+        extract_part=conv_with_bias[:,:,self.input_hidden-1:self.input_hidden,:] #(batch, kernels, 1, len+filter-width-1)
+        wide_conv_out = extract_part.reshape((image_shape[0], 1, filter_shape[0], image_shape[3]+filter_shape[3]-1)) #(batch, 1, kernerl, ishape[1]-filter_size1[1]+1)
+        
+        self.wide_conv_out_tensor4=wide_conv_out  #(batch, 1, kernels, len+width-1)
+        self.wide_conv_out_tensor3=extract_part.reshape((image_shape[0], filter_shape[0], image_shape[3]+filter_shape[3]-1))#(batch,  kernels, len+width-1)
+    
+    
+    
+
 class Conv_with_input_para(object):
     """Pool Layer of a convolutional network """
 
@@ -185,6 +233,7 @@ class Conv_with_input_para(object):
         narrow_conv_out=conv_with_bias.reshape((image_shape[0], 1, filter_shape[0], image_shape[3]-filter_shape[3]+1)) #(batch, 1, kernerl, ishape[1]-filter_size1[1]+1)
         
         self.narrow_conv_out=narrow_conv_out
+        self.narrow_conv_out_tensor3=conv_with_bias.reshape((image_shape[0], filter_shape[0], image_shape[3]-filter_shape[3]+1))
         
         #pad filter_size-1 zero embeddings at both sides
         left_padding = T.zeros((image_shape[0], 1, filter_shape[0], filter_shape[3]-1), dtype=theano.config.floatX)
@@ -422,7 +471,7 @@ class Bd_GRU_Batch_Tensor_Input_with_Mask(object):
         fwd = GRU_Batch_Tensor_Input_with_Mask(X, Mask, hidden_dim, U, W, b)
         bwd = GRU_Batch_Tensor_Input_with_Mask(X[:,:,::-1], Mask[:,::-1], hidden_dim, Ub, Wb, bb)
 
-#         output_tensor=T.concatenate([fwd.output_tensor, bwd.output_tensor[:,:,::-1]], axis=1)
+        self.output_tensor_conc=T.concatenate([fwd.output_tensor, bwd.output_tensor[:,:,::-1]], axis=1) #(batch, 2*hidden , len)
         #for word level rep
         output_tensor=fwd.output_tensor+bwd.output_tensor[:,:,::-1]
         self.output_tensor=output_tensor#+X[:,:output_tensor.shape[1],:] # add initialized emb
@@ -432,7 +481,7 @@ class Bd_GRU_Batch_Tensor_Input_with_Mask(object):
 #         self.output_tensor=output_tensor+X # add initialized emb
 #         self.output_sent_rep=self.output_tensor[:,:,-1]
         self.output_sent_rep_maxpooling=fwd.output_tensor[:,:,-1]+bwd.output_tensor[:,:,-1] #(batch, hidden)
-#         self.output_sent_rep_maxpooling=T.concatenate([fwd.output_tensor[:,:,-1], bwd.output_tensor[:,:,-1]], axis=1)
+        self.output_sent_rep_conc=T.concatenate([fwd.output_tensor[:,:,-1], bwd.output_tensor[:,:,-1]], axis=1) #(batch, 2*hidden)
 
 class Bd_GRU_Batch_Tensor_Input_with_Mask_Concate(object):
     # Bidirectional GRU Layer.
@@ -481,10 +530,10 @@ class Bd_LSTM_Batch_Tensor_Input_with_Mask(object):
         fwd = LSTM_Batch_Tensor_Input_with_Mask(X, Mask, hidden_dim, fwd_tparams)
         bwd = LSTM_Batch_Tensor_Input_with_Mask(X[:,:,::-1], Mask[:,::-1], hidden_dim, bwd_tparams)
 
-#         output_tensor=T.concatenate([fwd.output_tensor, bwd.output_tensor[:,:,::-1]], axis=1)
+        output_tensor=T.concatenate([fwd.output_tensor, bwd.output_tensor[:,:,::-1]], axis=1)
         #for word level rep
-        output_tensor=fwd.output_tensor+bwd.output_tensor[:,:,::-1]
-        self.output_tensor=output_tensor#+X[:,:output_tensor.shape[1],:] # add initialized emb
+#         output_tensor=fwd.output_tensor+bwd.output_tensor[:,:,::-1]
+        self.output_tensor_conc=output_tensor#+X[:,:output_tensor.shape[1],:] # add initialized emb
         
         #for final sentence rep
 #         sent_output_tensor=fwd.output_tensor+bwd.output_tensor
@@ -1827,3 +1876,153 @@ class rmsprop(object):
             updates.append((memory, update))
             updates.append((param, param + update2))
         return updates   
+
+def rescale_weights(params, incoming_max):
+    incoming_max = np.cast[theano.config.floatX](incoming_max)
+    for p in params:
+        w = p.get_value()
+        w_sum = (w**2).sum(axis=0)
+        w[:, w_sum>incoming_max] = w[:, w_sum>incoming_max] * np.sqrt(incoming_max) / w_sum[w_sum>incoming_max]
+        p.set_value(w)
+        
+        
+        
+class BNComposite(Composite):
+    init_param = ('dtype',)
+
+    def __init__(self, dtype):
+        self.dtype = dtype
+        x = theano.scalar.Scalar(dtype=dtype).make_variable()
+        mean = theano.scalar.Scalar(dtype=dtype).make_variable()
+        std = theano.scalar.Scalar(dtype=dtype).make_variable()
+        gamma = theano.scalar.Scalar(dtype=dtype).make_variable()
+        beta = theano.scalar.Scalar(dtype=dtype).make_variable()
+        o = add(mul(true_div(sub(x, mean), std), gamma), beta)
+        inputs = [x, mean, std, gamma, beta]
+        outputs = [o]
+        super(BNComposite, self).__init__(inputs, outputs)
+
+    def grad(self, inps, grads):
+        x, mean, std, gamma, beta = inps
+        top, = grads
+        dx = (top * gamma) / std
+        dmean = -(top * gamma) / std
+        dstd = -(top * gamma * (x - mean)) / (std * std)
+        dgamma = top * (x - mean) / std
+        return [dx, dmean, dstd, dgamma, top]
+def batch_normalization(inputs, gamma, beta, mean, std,
+                        mode='low_mem'):
+    """
+    This function will build the symbolic graph for applying batch normalization
+    to a set of activations.
+    Also works on GPUs
+    .. versionadded:: 0.7.1
+    Parameters
+    ----------
+    inputs : symbolic tensor
+        Mini-batch of activations
+    gamma: symbolic tensor
+        BN scale parameter, must be of same dimensionality as
+        inputs and broadcastable against it
+    beta: symbolic tensor
+        BN shift parameter, must be of same dimensionality as
+        inputs and broadcastable against it
+    mean: symbolic tensor
+        inputs means, must be of same dimensionality as
+        inputs and broadcastable against it
+    std: symbolic tensor
+        inputs standard deviation, must be of same dimensionality as
+        inputs and broadcastable against it
+    mode: 'low_mem' or 'high_mem'
+        Specify which batch_normalization implementation that will be
+        used.
+        As no intermediate representations are stored for the back-propagation,
+        'low_mem' implementation lower the memory usage, however,
+        it is 5-10% slower than 'high_mem' implementation. Note that 5-10% computation
+        time difference compare the batch_normalization operation only, time difference
+        between implementation is likely to be less important on the full model fprop/bprop.
+    """
+    if mode == 'low_mem':
+        elm_bn = theano.tensor.elemwise.Elemwise(scalar_op=BNComposite(dtype=inputs.dtype))
+        rval = elm_bn(inputs, mean, std, gamma, beta)
+    elif mode == 'high_mem':
+        rval = (inputs - mean) * (gamma / std) + beta
+    else:
+        raise ValueError(
+            'mode must be either "low_mem", "high_mem"')
+    return rval
+
+def shared(shape, name):
+    """
+    Create a shared object of a numpy array.
+    """
+    if len(shape) == 1:
+        value = np.zeros(shape)  # bias are initialized with zeros
+    else:
+        drange = np.sqrt(6. / (np.sum(shape)))
+        value = drange * np.random.uniform(low=-1.0, high=1.0, size=shape)
+    return theano.shared(value=value.astype(theano.config.floatX), name=name)
+
+def crf_forward(observations, transitions, viterbi=False,
+            return_alpha=False, return_best_sequence=False):
+    """
+    Takes as input:
+        - observations, sequence of shape (n_steps, n_classes)
+        - transitions, sequence of shape (n_classes, n_classes)
+    Probabilities must be given in the log space.
+    Compute alpha, matrix of size (n_steps, n_classes), such that
+    alpha[i, j] represents one of these 2 values:
+        - the probability that the real path at node i ends in j
+        - the maximum probability of a path finishing in j at node i (Viterbi)
+    Returns one of these 2 values:
+        - alpha
+        - the final probability, which can be:
+            - the sum of the probabilities of all paths
+            - the probability of the best path (Viterbi)
+    """
+    assert not return_best_sequence or (viterbi and not return_alpha)
+
+    def recurrence(obs, previous, transitions):
+        previous = previous.dimshuffle(0, 'x')
+        obs = obs.dimshuffle('x', 0)
+        if viterbi:
+            scores = previous + obs + transitions
+            out = scores.max(axis=0)
+            if return_best_sequence:
+                out2 = scores.argmax(axis=0)
+                return out, out2
+            else:
+                return out
+        else:
+            return log_sum_exp(previous + obs + transitions, axis=0)
+
+    initial = observations[0]
+    alpha, _ = theano.scan(
+        fn=recurrence,
+        outputs_info=(initial, None) if return_best_sequence else initial,
+        sequences=[observations[1:]],
+        non_sequences=transitions
+    )
+
+    if return_alpha:
+        return alpha
+    elif return_best_sequence:
+        sequence, _ = theano.scan(
+            fn=lambda beta_i, previous: beta_i[previous],
+            outputs_info=T.cast(T.argmax(alpha[0][-1]), 'int32'),
+            sequences=T.cast(alpha[1][::-1], 'int32')
+        )
+        sequence = T.concatenate([sequence[::-1], [T.argmax(alpha[0][-1])]])
+        return sequence
+    else:
+        if viterbi:
+            return alpha[-1].max(axis=0)
+        else:
+            return log_sum_exp(alpha[-1], axis=0)
+def log_sum_exp(x, axis=None):
+    """
+    Sum probabilities in the log-space.
+    """
+    xmax = x.max(axis=axis, keepdims=True)
+    xmax_ = x.max(axis=axis)
+    return xmax_ + T.log(T.exp(x - xmax).sum(axis=axis))
