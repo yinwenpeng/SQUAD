@@ -1998,7 +1998,7 @@ def  load_dev_or_test_AI2(word2id, para_len_limit, q_len_limit):
 # 
 #     return     word2id, questions,questions_mask,paras,paras_mask,c_heads,c_tails,e_heads,e_tails,labels
 
-def load_SQUAD_hinrich_v2(example_no_limit, max_para_len, max_q_len, word2id, fil):
+def load_SQUAD_hinrich_v2(example_no_limit, max_para_len, max_q_len, e_len, c_len, word2id, fil):
     line_co=0
     block_lines=9
     example_co=0
@@ -2008,6 +2008,10 @@ def load_SQUAD_hinrich_v2(example_no_limit, max_para_len, max_q_len, word2id, fi
     questions_mask=[]
     paras=[]
     paras_mask=[]
+    e_ids=[]
+    e_masks=[]
+    c_ids=[]
+    c_masks=[]
     c_heads=[]
     c_tails=[]
     l_heads=[]
@@ -2043,8 +2047,16 @@ def load_SQUAD_hinrich_v2(example_no_limit, max_para_len, max_q_len, word2id, fi
                 questions_mask.append(q_mask)
             elif line_co%block_lines==4: # cand
                 cand=line.strip().split()[1:]
+                cand_example=strlist_2_wordidlist(cand, word2id)
+                pad_cand_example, cand_mask=pad_idlist(cand_example, c_len)
+                c_ids.append(pad_cand_example)
+                c_masks.append(cand_mask)                
             elif line_co%block_lines==5: # exted
                 extend=line.strip().split()[1:]
+                extend_example=strlist_2_wordidlist(extend, word2id)
+                pad_extend_example, extend_mask=pad_idlist(extend_example, e_len)
+                e_ids.append(pad_extend_example)
+                e_masks.append(extend_mask) 
             elif line_co%block_lines==6: # context
                 sub_line=line.strip().split()
                 if len(sub_line)==1:
@@ -2137,7 +2149,7 @@ def load_SQUAD_hinrich_v2(example_no_limit, max_para_len, max_q_len, word2id, fi
     readfile.close()
     print 'load', example_co, 'samples finished, majority rate:', label2co.get(1)+label2co.get(0), label2co.get(1)*1.0/(label2co.get(1)+label2co.get(0)), label2co.get(0)*1.0/(label2co.get(1)+label2co.get(0))
 
-    return     word2id, questions,questions_mask,paras,paras_mask,c_heads,c_tails,l_heads,l_tails,e_heads,e_tails, labels, labels_3c
+    return     word2id, questions,questions_mask,paras,paras_mask,e_ids,e_masks,c_ids,c_masks,c_heads,c_tails,l_heads,l_tails,e_heads,e_tails, labels, labels_3c
 
 def  load_train_reformed_BIO(para_len_limit, q_len_limit):
     max_para_len=para_len_limit

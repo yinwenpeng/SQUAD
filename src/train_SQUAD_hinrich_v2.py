@@ -45,7 +45,7 @@ Dev  max_para_len:, 629 max_q_len: 33
 
 def evaluate_lenet5(learning_rate=0.001, n_epochs=2000, batch_size=500, test_batch_size=1000, emb_size=50, hidden_size=50, HL_hidden_size=200,
                     L2_weight=0.0001, train_size=None, test_size=None, batch_size_pred=1000,
-                    para_len=60, question_len=20):
+                    para_len=60, question_len=20, c_len=7, e_len=2):
 
     model_options = locals().copy()
     print "model options", model_options
@@ -55,12 +55,12 @@ def evaluate_lenet5(learning_rate=0.001, n_epochs=2000, batch_size=500, test_bat
     
     word2id={}
     word2id['UNK']=0 # use it to pad 
-    word2id, train_questions,train_questions_mask,train_paras,train_paras_mask,train_c_heads,train_c_tails,train_l_heads,train_l_tails,train_e_heads,train_e_tails,train_labels, train_labels_3c=load_SQUAD_hinrich_v2(train_size, para_len, question_len, word2id, rootPath+'squadnewtrn.txt')
-    word2id, test_questions,test_questions_mask,test_paras,test_paras_mask,test_c_heads,test_c_tails,test_l_heads,test_l_tails,test_e_heads,test_e_tails,test_labels, test_labels_3c=load_SQUAD_hinrich_v2(test_size, para_len, question_len, word2id, rootPath+'squadnewdev.txt')
+    word2id, train_questions,train_questions_mask,train_paras,train_paras_mask,train_e_ids,train_e_masks,train_c_ids,train_c_masks, train_c_heads,train_c_tails,train_l_heads,train_l_tails,train_e_heads,train_e_tails,train_labels, train_labels_3c=load_SQUAD_hinrich_v2(train_size, para_len, question_len, e_len, c_len, word2id, rootPath+'squadnewtrn.txt')
+    word2id, test_questions,test_questions_mask,test_paras,test_paras_mask,test_e_ids,test_e_masks,test_c_ids,test_c_masks, test_c_heads,test_c_tails,test_l_heads,test_l_tails,test_e_heads,test_e_tails,test_labels, test_labels_3c=load_SQUAD_hinrich_v2(test_size, para_len, question_len, e_len, c_len,word2id, rootPath+'squadnewdev.txt')
 
     print 'word2id size for bigger dataset:', len(word2id)
-    word2id, train_questions,train_questions_mask,train_paras,train_paras_mask,train_c_heads,train_c_tails,train_l_heads,train_l_tails,train_e_heads,train_e_tails,train_labels, train_labels_3c=load_SQUAD_hinrich_v2(train_size, para_len, question_len, word2id, rootPath+'squadnewtrn,subset.txt')
-    word2id, test_questions,test_questions_mask,test_paras,test_paras_mask,test_c_heads,test_c_tails,test_l_heads,test_l_tails,test_e_heads,test_e_tails,test_labels, test_labels_3c=load_SQUAD_hinrich_v2(test_size, para_len, question_len, word2id, rootPath+'squadnewdev,subset.txt')
+    word2id, train_questions,train_questions_mask,train_paras,train_paras_mask,train_e_ids,train_e_masks,train_c_ids,train_c_masks, train_c_heads,train_c_tails,train_l_heads,train_l_tails,train_e_heads,train_e_tails,train_labels, train_labels_3c=load_SQUAD_hinrich_v2(train_size, para_len, question_len,e_len, c_len, word2id, rootPath+'squadnewtrn,subset.000.txt')
+    word2id, test_questions,test_questions_mask,test_paras,test_paras_mask,test_e_ids,test_e_masks,test_c_ids,test_c_masks, test_c_heads,test_c_tails,test_l_heads,test_l_tails,test_e_heads,test_e_tails,test_labels, test_labels_3c=load_SQUAD_hinrich_v2(test_size, para_len, question_len, e_len, c_len,word2id, rootPath+'squadnewdev,subset.000.txt')
     
     print 'word2id size for smaller dataset:', len(word2id)
 #     if len(train_questions)!=train_size or len(test_questions)!=test_size:
@@ -76,6 +76,12 @@ def evaluate_lenet5(learning_rate=0.001, n_epochs=2000, batch_size=500, test_bat
     train_questions_mask = np.asarray(train_questions_mask, dtype=theano.config.floatX)
     train_paras = np.asarray(train_paras, dtype='int32')
     train_paras_mask = np.asarray(train_paras_mask, dtype=theano.config.floatX)
+
+    train_e_ids = np.asarray(train_e_ids, dtype='int32')
+    train_e_masks = np.asarray(train_e_masks, dtype=theano.config.floatX)
+    train_c_ids = np.asarray(train_c_ids, dtype='int32')
+    train_c_masks = np.asarray(train_c_masks, dtype=theano.config.floatX)
+
     train_c_heads = np.asarray(train_c_heads, dtype='int32')
     train_c_tails = np.asarray(train_c_tails, dtype='int32')
     train_l_heads = np.asarray(train_l_heads, dtype='int32')
@@ -89,6 +95,12 @@ def evaluate_lenet5(learning_rate=0.001, n_epochs=2000, batch_size=500, test_bat
     test_questions_mask = np.asarray(test_questions_mask, dtype=theano.config.floatX)
     test_paras = np.asarray(test_paras, dtype='int32')
     test_paras_mask = np.asarray(test_paras_mask, dtype=theano.config.floatX)
+
+    test_e_ids = np.asarray(test_e_ids, dtype='int32')
+    test_e_masks = np.asarray(test_e_masks, dtype=theano.config.floatX)
+    test_c_ids = np.asarray(test_c_ids, dtype='int32')
+    test_c_masks = np.asarray(test_c_masks, dtype=theano.config.floatX)
+
     test_c_heads = np.asarray(test_c_heads, dtype='int32')
     test_c_tails = np.asarray(test_c_tails, dtype='int32')
     test_l_heads = np.asarray(test_l_heads, dtype='int32')
@@ -114,6 +126,12 @@ def evaluate_lenet5(learning_rate=0.001, n_epochs=2000, batch_size=500, test_bat
 
     para=T.imatrix()  #(2*batch, len)
     para_mask=T.fmatrix() #(2*batch, len)
+
+    c_ids=T.imatrix()  #(2*batch, len)
+    c_mask=T.fmatrix() #(2*batch, len)
+    e_ids=T.imatrix()  #(2*batch, len)
+    e_mask=T.fmatrix() #(2*batch, len)
+
     c_heads=T.ivector() #batch
     c_tails=T.ivector() #batch
     l_heads=T.ivector() #batch
@@ -178,12 +196,44 @@ def evaluate_lenet5(learning_rate=0.001, n_epochs=2000, batch_size=500, test_bat
     e_heads_reps=paragraph_reps_tensor3[batch_ids,:,e_heads] #(batch, 2*hidden)
     e_tails_reps=paragraph_reps_tensor3[batch_ids,:,e_tails] #(batch, 2*hidden)
     extensions_reps=T.concatenate([e_heads_reps, e_tails_reps], axis=1) #(batch, 4*hidden)
+    
+    
+    #glove level average
+    c_input = embeddings[c_ids.flatten()].reshape((true_batch_size, c_len, emb_size)).transpose((0, 2,1)) #(batch, emb_size, c_len)
+    c_sum = T.sum(c_input*c_mask.dimshuffle(0,'x',1), axis=2) #(batch, emb_size)
+    average_C_batch = c_sum/T.sqrt(T.sum(c_sum**2, axis=1)+1e-20).dimshuffle(0,'x')
+
+    e_input = embeddings[e_ids.flatten()].reshape((true_batch_size, e_len, emb_size)).transpose((0, 2,1)) #(batch, emb_size, c_len)
+    e_sum = T.sum(e_input*e_mask.dimshuffle(0,'x',1), axis=2) #(batch, emb_size)
+    average_E_batch = e_sum/T.sqrt(T.sum(e_sum**2, axis=1)+1e-20).dimshuffle(0,'x')    
+
+#     e_input = embeddings[e_ids.flatten()].reshape((true_batch_size, e_len, emb_size)).transpose((0, 2,1)) #(batch, emb_size, c_len)
+    q_sum = T.sum(q_input*q_mask.dimshuffle(0,'x',1), axis=2) #(batch, emb_size)
+    average_Q_batch = q_sum/T.sqrt(T.sum(q_sum**2, axis=1)+1e-20).dimshuffle(0,'x')      
+#     def submatrix_average(matrix, head, tail):
+#         return T.mean(matrix[:, head:tail+1], axis=1) #emb_size
+#     def submatrix_average_q(matrix, head):
+#         return T.mean(matrix[:, head:], axis=1) #emb_size
+#     
+#     average_E_batch, _ = theano.scan(fn=submatrix_average,
+#                                    sequences=[paragraph_input,e_heads, e_tails])    #(batch, emb_size)
+#     average_C_batch, _ = theano.scan(fn=submatrix_average,
+#                                    sequences=[paragraph_input,c_heads, c_tails])  #(batch, emb_size)
+#     
+#     Q_valid_len=T.cast(T.sum(q_mask, axis=1), 'int32')
+#     
+#     average_Q_batch, _ = theano.scan(fn=submatrix_average_q,
+#                                    sequences=[q_input,-Q_valid_len])     #(batch, emb_size)
     #classify
 
 
-    HL_layer_1_input_size=14*hidden_size
+    HL_layer_1_input_size=14*hidden_size+3*emb_size
+#     average_E_batch=debug_print(average_E_batch,'average_E_batch')
+#     average_C_batch=debug_print(average_C_batch, 'average_C_batch')
+#     average_Q_batch=debug_print(average_Q_batch, 'average_Q_batch')
     
-    HL_layer_1_input = T.concatenate([q_reps, longs_reps, extensions_reps, candididates_reps], axis=1) #(batch, 14*hidden)
+    #, average_E_batch, average_C_batch, average_Q_batch
+    HL_layer_1_input = T.concatenate([q_reps, longs_reps, extensions_reps, candididates_reps, average_E_batch, average_C_batch, average_Q_batch], axis=1) #(batch, 14*hidden_size+3*emb_size)
     
     HL_layer_1=HiddenLayer(rng, input=HL_layer_1_input, n_in=HL_layer_1_input_size, n_out=HL_hidden_size, activation=T.tanh)
     HL_layer_2=HiddenLayer(rng, input=HL_layer_1.output, n_in=HL_hidden_size, n_out=HL_hidden_size, activation=T.tanh)
@@ -230,12 +280,12 @@ def evaluate_lenet5(learning_rate=0.001, n_epochs=2000, batch_size=500, test_bat
         updates.append((acc_i, acc))
 
 
-    train_model = theano.function([para, para_mask, c_heads, c_tails, l_heads, l_tails, e_heads, e_tails, q, q_mask,labels], cost, updates=updates,on_unused_input='ignore')
+    train_model = theano.function([para, para_mask,c_ids,c_mask,e_ids,e_mask, c_heads, c_tails, l_heads, l_tails, e_heads, e_tails, q, q_mask,labels], cost, updates=updates,on_unused_input='ignore')
 
-    train_model_pred = theano.function([para, para_mask, c_heads, c_tails, l_heads, l_tails, e_heads, e_tails, q, q_mask,labels], layer_LR.y_pred, on_unused_input='ignore')
+    train_model_pred = theano.function([para, para_mask, c_ids,c_mask,e_ids,e_mask, c_heads, c_tails, l_heads, l_tails, e_heads, e_tails, q, q_mask,labels], layer_LR.y_pred, on_unused_input='ignore')
 
 
-    test_model = theano.function([para, para_mask, c_heads, c_tails, l_heads, l_tails, e_heads, e_tails, q, q_mask,labels], [layer_LR.errors(labels),layer_LR.y_pred], on_unused_input='ignore')
+    test_model = theano.function([para, para_mask, c_ids,c_mask,e_ids,e_mask, c_heads, c_tails, l_heads, l_tails, e_heads, e_tails, q, q_mask,labels], [layer_LR.errors(labels),layer_LR.y_pred], on_unused_input='ignore')
 
 
 
@@ -293,6 +343,12 @@ def evaluate_lenet5(learning_rate=0.001, n_epochs=2000, batch_size=500, test_bat
             cost_i+= train_model(
                                 train_paras[train_id_list],
                                 train_paras_mask[train_id_list],
+                                
+                                train_c_ids[train_id_list],
+                                train_c_masks[train_id_list],
+                                train_e_ids[train_id_list],
+                                train_e_masks[train_id_list],
+                                
                                 train_c_heads[train_id_list],
                                 train_c_tails[train_id_list],
                                 train_l_heads[train_id_list],
@@ -308,31 +364,35 @@ def evaluate_lenet5(learning_rate=0.001, n_epochs=2000, batch_size=500, test_bat
                 print 'Epoch ', epoch, 'iter '+str(iter)+'/'+str(len(train_batch_start))+' average cost: '+str(cost_i/iter), 'uses ', (time.time()-past_time)/60.0, 'min'
 
                 past_time = time.time()
-                print 'Training Pred...'
-                train_statistic=defaultdict(int)
-                for para_id in train_batch_start_pred:
-                    train_id_list = train_ids_pred[para_id:para_id+batch_size_pred]
-                    gold_train_labels_list = train_labels_3c[train_id_list]
-#                     print 'train_id_list:', train_id_list
-#                     print 'train_c_heads[train_id_list]:', train_c_heads[train_id_list]
-                    train_preds_i= train_model_pred(
-                                        train_paras[train_id_list],
-                                        train_paras_mask[train_id_list],
-                                        train_c_heads[train_id_list],
-                                        train_c_tails[train_id_list],
-                                        train_l_heads[train_id_list],
-                                        train_l_tails[train_id_list],
-                                        train_e_heads[train_id_list],
-                                        train_e_tails[train_id_list],
-                                        train_questions[train_id_list],
-                                        train_questions_mask[train_id_list],
-                                        train_labels[train_id_list])  
-
-                    for ind, gold_label in enumerate(gold_train_labels_list):
-                        train_statistic[(gold_label, train_preds_i[ind])]+=1   
-                    train_acc= (train_statistic.get((1,1),0)+train_statistic.get((0,0),0))*1.0/(train_statistic.get((1,1),0)+train_statistic.get((0,0),0)+train_statistic.get((1,0),0)+train_statistic.get((0,1),0))
-                            
-                print '\t\tcurrnt train acc:', train_acc, ' train_statistic:', train_statistic
+#                 print 'Training Pred...'
+#                 train_statistic=defaultdict(int)
+#                 for para_id in train_batch_start_pred:
+#                     train_id_list = train_ids_pred[para_id:para_id+batch_size_pred]
+#                     gold_train_labels_list = train_labels_3c[train_id_list]
+# #                     print 'train_id_list:', train_id_list
+# #                     print 'train_c_heads[train_id_list]:', train_c_heads[train_id_list]
+#                     train_preds_i= train_model_pred(
+#                                         train_paras[train_id_list],
+#                                         train_paras_mask[train_id_list],
+#                                         train_c_ids[train_id_list],
+#                                         train_c_masks[train_id_list],
+#                                         train_e_ids[train_id_list],
+#                                         train_e_masks[train_id_list],
+#                                         train_c_heads[train_id_list],
+#                                         train_c_tails[train_id_list],
+#                                         train_l_heads[train_id_list],
+#                                         train_l_tails[train_id_list],
+#                                         train_e_heads[train_id_list],
+#                                         train_e_tails[train_id_list],
+#                                         train_questions[train_id_list],
+#                                         train_questions_mask[train_id_list],
+#                                         train_labels[train_id_list])  
+# 
+#                     for ind, gold_label in enumerate(gold_train_labels_list):
+#                         train_statistic[(gold_label, train_preds_i[ind])]+=1   
+#                     train_acc= (train_statistic.get((1,1),0)+train_statistic.get((0,0),0))*1.0/(train_statistic.get((1,1),0)+train_statistic.get((0,0),0)+train_statistic.get((1,0),0)+train_statistic.get((0,1),0))
+#                             
+#                 print '\t\tcurrnt train acc:', train_acc, ' train_statistic:', train_statistic
                 print 'Testing...'
                 error=0
                 test_statistic=defaultdict(int)
@@ -344,6 +404,10 @@ def evaluate_lenet5(learning_rate=0.001, n_epochs=2000, batch_size=500, test_bat
                     error_i, preds_i= test_model(
                                         test_paras[test_id_list],
                                         test_paras_mask[test_id_list],
+                                        test_c_ids[test_id_list],
+                                        test_c_masks[test_id_list],
+                                        test_e_ids[test_id_list],
+                                        test_e_masks[test_id_list],
                                         test_c_heads[test_id_list],
                                         test_c_tails[test_id_list],
                                         test_l_heads[test_id_list],
@@ -363,7 +427,7 @@ def evaluate_lenet5(learning_rate=0.001, n_epochs=2000, batch_size=500, test_bat
                 if acc> max_acc:
                     max_acc=acc
                     best_test_statistic=test_statistic
-                    store_model_to_file(storePath+'Best_Paras_HS_v2_'+str(max_acc), params)
+                    store_model_to_file(storePath+'Best_Paras_HS_v2_000_withSumNorm_'+str(max_acc), params)
                     print 'Finished storing best  params at:', max_acc
                 print 'current average acc:', acc, '\t\tmax acc:', max_acc, '\ttest_statistic:', test_statistic
                 print '\t\t\t\tbest statistic:', best_test_statistic
