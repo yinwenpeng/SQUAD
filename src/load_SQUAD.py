@@ -882,7 +882,7 @@ def load_word2vec():
 
     print "==> loading 300d word2vec"
 #     with open(os.path.join(os.path.dirname(os.path.realpath(__file__)), "data/glove/glove.6B." + str(dim) + "d.txt")) as f:
-    f=open('/mounts/data/proj/wenpeng/Dataset/glove.6B.50d.txt', 'r')#word2vec_words_300d.txt
+    f=open('/mounts/data/proj/wenpeng/Dataset/glove.6B.300d.txt', 'r')#word2vec_words_300d.txt
     for line in f:
         l = line.split()
         word2vec[l[0]] = map(float, l[1:])

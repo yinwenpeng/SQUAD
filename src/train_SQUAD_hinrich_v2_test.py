@@ -43,7 +43,7 @@ Train  max_para_len:, 653 max_q_len: 40
 Dev  max_para_len:, 629 max_q_len: 33
 '''
 
-def evaluate_lenet5(learning_rate=0.001, n_epochs=2000, batch_size=500, test_batch_size=1000, emb_size=50, hidden_size=50, HL_hidden_size=200,
+def evaluate_lenet5(learning_rate=0.001, n_epochs=2000, batch_size=500, test_batch_size=1000, emb_size=300, hidden_size=300, HL_hidden_size=200,
                     L2_weight=0.0001, train_size=None, test_size=None, batch_size_pred=1000,
                     para_len=60, question_len=20, c_len=7, e_len=2):
 
@@ -240,7 +240,7 @@ def evaluate_lenet5(learning_rate=0.001, n_epochs=2000, batch_size=500, test_bat
 
 
     params = LR_para+[embeddings]+paragraph_para+question_para+HL_layer_1.params+HL_layer_2.params
-    load_model_from_file(storePath+'Best_Paras_HS_v2_000_withSumNorm_0.66780952381', params)
+    load_model_from_file(storePath+'Best_Paras_HS_v2_000_withSumNorm_0.706428571429', params)
     
 #     L2_reg =L2norm_paraList([embeddings,U1, W1, U1_b, W1_b,UQ, WQ , UQ_b, WQ_b, W_a1, W_a2, U_a])
     #L2_reg = L2norm_paraList(params)

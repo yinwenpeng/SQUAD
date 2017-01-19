@@ -43,7 +43,7 @@ Train  max_para_len:, 653 max_q_len: 40
 Dev  max_para_len:, 629 max_q_len: 33
 '''
 
-def evaluate_lenet5(learning_rate=0.001, n_epochs=2000, batch_size=500, test_batch_size=1000, emb_size=50, hidden_size=50, HL_hidden_size=200,
+def evaluate_lenet5(learning_rate=0.01, n_epochs=2000, batch_size=500, test_batch_size=1000, emb_size=300, hidden_size=300, HL_hidden_size=200,
                     L2_weight=0.0001, train_size=None, test_size=None, batch_size_pred=1000,
                     para_len=60, question_len=20, c_len=7, e_len=2):
 
@@ -227,21 +227,27 @@ def evaluate_lenet5(learning_rate=0.001, n_epochs=2000, batch_size=500, test_bat
     #classify
 
 
-    HL_layer_1_input_size=14*hidden_size+3*emb_size
-#     average_E_batch=debug_print(average_E_batch,'average_E_batch')
-#     average_C_batch=debug_print(average_C_batch, 'average_C_batch')
-#     average_Q_batch=debug_print(average_Q_batch, 'average_Q_batch')
+
+
+    HL_layer_subtask_input=T.concatenate([q_reps, extensions_reps, average_E_batch, average_Q_batch], axis=1) #(batch, 6*hidden+2*emb)
+    HL_layer_subtask_size= 6*hidden_size+2*emb_size#HL_layer_1_input_size+2*HL_hidden_size
+
+    HL_layer_subtask_1=HiddenLayer(rng, input=HL_layer_subtask_input, n_in=HL_layer_subtask_size, n_out=HL_hidden_size, activation=T.tanh)
+    HL_layer_subtask_2=HiddenLayer(rng, input=HL_layer_subtask_1.output, n_in=HL_hidden_size, n_out=HL_hidden_size, activation=T.tanh)        
+    U_subtask_a = create_ensemble_para(rng, 2, HL_hidden_size) # the weight matrix hidden_size*2
+    norm_U_subtask_a=normalize_matrix(U_subtask_a)
+    LR_subtask_b = theano.shared(value=np.zeros((2,),dtype=theano.config.floatX),name='LR_b', borrow=True)  #bias for each target class  
+    LR_subtask_para=[U_subtask_a, LR_subtask_b]
+    layer_LR_subtask=LogisticRegression(rng, input=HL_layer_subtask_2.output, n_in=HL_hidden_size, n_out=2, W=norm_U_subtask_a, b=LR_subtask_b) #basically it is a multiplication between weight matrix and input feature vector
     
+
+    HL_layer_1_input_size=14*hidden_size+3*emb_size+1
     #, average_E_batch, average_C_batch, average_Q_batch
-    HL_layer_1_input = T.concatenate([q_reps, longs_reps, extensions_reps, candididates_reps, average_E_batch, average_C_batch, average_Q_batch], axis=1) #(batch, 14*hidden_size+3*emb_size)
+    HL_layer_1_input = T.concatenate([q_reps, longs_reps, extensions_reps, candididates_reps, average_E_batch, average_C_batch, average_Q_batch, layer_LR_subtask.prop_for_posi.reshape((true_batch_size,1))], axis=1) #(batch, 14*hidden_size+3*emb_size+1)
     
     HL_layer_1=HiddenLayer(rng, input=HL_layer_1_input, n_in=HL_layer_1_input_size, n_out=HL_hidden_size, activation=T.tanh)
     HL_layer_2=HiddenLayer(rng, input=HL_layer_1.output, n_in=HL_hidden_size, n_out=HL_hidden_size, activation=T.tanh)
-    
-
-
-
-    
+        
     LR_input=HL_layer_2.output #T.concatenate([HL_layer_1_input, HL_layer_1.output, HL_layer_2.output], axis=1) #(batch, 10*hidden)
     LR_input_size= HL_hidden_size#HL_layer_1_input_size+2*HL_hidden_size
     U_a = create_ensemble_para(rng, 2, LR_input_size) # the weight matrix hidden_size*2
@@ -249,7 +255,7 @@ def evaluate_lenet5(learning_rate=0.001, n_epochs=2000, batch_size=500, test_bat
     LR_b = theano.shared(value=np.zeros((2,),dtype=theano.config.floatX),name='LR_b', borrow=True)  #bias for each target class  
     LR_para=[U_a, LR_b]
     layer_LR=LogisticRegression(rng, input=LR_input, n_in=LR_input_size, n_out=2, W=norm_U_a, b=LR_b) #basically it is a multiplication between weight matrix and input feature vector
-    loss=layer_LR.negative_log_likelihood(labels)  #for classification task, we usually used negative log likelihood as loss, the lower the better.
+    loss=layer_LR.negative_log_likelihood(labels)+layer_LR_subtask.negative_log_likelihood(labels)  #for classification task, we usually used negative log likelihood as loss, the lower the better.
     
 
 
@@ -257,7 +263,7 @@ def evaluate_lenet5(learning_rate=0.001, n_epochs=2000, batch_size=500, test_bat
 
 
 
-    params = LR_para+[embeddings]+paragraph_para+question_para+HL_layer_1.params+HL_layer_2.params
+    params = LR_para+[embeddings]+paragraph_para+question_para+HL_layer_1.params+HL_layer_2.params+LR_subtask_para+HL_layer_subtask_1.params+HL_layer_subtask_2.params
     
 #     L2_reg =L2norm_paraList([embeddings,U1, W1, U1_b, W1_b,UQ, WQ , UQ_b, WQ_b, W_a1, W_a2, U_a])
     #L2_reg = L2norm_paraList(params)
@@ -427,7 +433,7 @@ def evaluate_lenet5(learning_rate=0.001, n_epochs=2000, batch_size=500, test_bat
                 if acc> max_acc:
                     max_acc=acc
                     best_test_statistic=test_statistic
-                    store_model_to_file(storePath+'Best_Paras_HS_v2_000_withSumNorm_'+str(max_acc), params)
+                    store_model_to_file(storePath+'Best_Paras_HS_v2_000_subtask_'+str(max_acc), params)
                     print 'Finished storing best  params at:', max_acc
                 print 'current average acc:', acc, '\t\tmax acc:', max_acc, '\ttest_statistic:', test_statistic
                 print '\t\t\t\tbest statistic:', best_test_statistic
