@@ -552,6 +552,8 @@ class Bd_LSTM_Batch_Tensor_Input_with_Mask_Concate(object):
         #for word level rep
 #         output_tensor=fwd.output_tensor+bwd.output_tensor[:,:,::-1]
         self.output_tensor=output_tensor#(batch, 2*hidden ,len)       
+        self.forward_output=fwd.output_tensor
+        self.backward_output = bwd.output_tensor[:,:,::-1]
         #for final sentence rep
 #         self.output_sent_rep_maxpooling=fwd.output_tensor[:,:,-1]+bwd.output_tensor[:,:,-1]
         self.output_sent_rep_maxpooling=T.concatenate([fwd.output_tensor[:,:,-1], bwd.output_tensor[:,:,0]], axis=1) #(batch, 2*hidden)

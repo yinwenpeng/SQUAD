@@ -882,7 +882,7 @@ def load_word2vec():
 
     print "==> loading 300d word2vec"
 #     with open(os.path.join(os.path.dirname(os.path.realpath(__file__)), "data/glove/glove.6B." + str(dim) + "d.txt")) as f:
-    f=open('/mounts/data/proj/wenpeng/Dataset/glove.6B.300d.txt', 'r')#word2vec_words_300d.txt
+    f=open('/mounts/data/proj/wenpeng/Dataset/glove.6B.50d.txt', 'r')#word2vec_words_300d.txt
     for line in f:
         l = line.split()
         word2vec[l[0]] = map(float, l[1:])
@@ -978,6 +978,12 @@ def truncate_paragraph_by_question_returnBounary(word2vec, para_wordlist, q_word
     return new_para_wordlist, new_para_sentB
 
 def load_word2vec_to_init(rand_values, ivocab, word2vec):
+    
+#     word2vec_vocab=open('/mounts/data/proj/wenpeng/Dataset/SQuAD/pretrained_vocab.txt', 'w')
+#     word2vec_vocab.write('\n'.join(word2vec.keys()))
+#     word2vec_vocab.close()
+#     uncovered_vocab=open('/mounts/data/proj/wenpeng/Dataset/SQuAD/uncovered_vocab.txt', 'w')
+#     
     unk=0
     for id, word in ivocab.iteritems():
         emb=word2vec.get(word)
@@ -987,6 +993,8 @@ def load_word2vec_to_init(rand_values, ivocab, word2vec):
             rand_values[id]=emb
         else:
             unk+=1
+#             uncovered_vocab.write(word+'\n')
+#     uncovered_vocab.close()
             
     print '==> use word2vec initialization over...', unk, 'words failed to init'
     return rand_values
@@ -996,10 +1004,32 @@ def strlist_2_wordidlist(strlist, word2id):
     for word in strlist:
         word_id=word2id.get(word)
         if word_id is None:
-            word_id=len(word2id)+1
-        word2id[word]=word_id
+            word_id=len(word2id) # do not need plus 1 as word2vec[UNK]=0
+            word2id[word]=word_id
         idlist.append(word_id)
     return idlist
+
+# def strlist_2_charidlist(strlist, char2id):
+#     whole_str=' '.join(strlist)
+#     idlist=[]
+#     for char in whole_str:
+#         char_id=char2id.get(char)
+#         if char_id is None:
+#             char_id=len(char2id)
+#         char2id[char]=char_id
+#         idlist.append(char_id)
+#     return idlist
+
+def str_2_charidlist(whole_str, char2id):
+    idlist=[]
+    for char in whole_str:
+        char_id=char2id.get(char)
+        if char_id is None:
+            char_id=len(char2id)
+            char2id[char]=char_id
+        idlist.append(char_id)
+    return idlist
+
 def strlist_2_wordidlist_noIncrease(strlist, word2id):
     idlist=[]
     for word in strlist:
@@ -1027,6 +1057,7 @@ def leftpad_idlist_padsize(idlist, maxlen):
     else:
         idlist=idlist[-pad_size:]
         mask=[1.0]*maxlen
+        pad_size=0
     return idlist, mask,pad_size
 def rightpad_idlist_padsize(idlist, maxlen):
     valid_size=len(idlist)
@@ -2151,6 +2182,163 @@ def load_SQUAD_hinrich_v2(example_no_limit, max_para_len, max_q_len, e_len, c_le
 
     return     word2id, questions,questions_mask,paras,paras_mask,e_ids,e_masks,c_ids,c_masks,c_heads,c_tails,l_heads,l_tails,e_heads,e_tails, labels, labels_3c
 
+def strlist2str(strlist):
+    return ' '.join(strlist)
+
+def load_SQUAD_hinrich_v3(example_no_limit, max_para_len, max_q_len, e_len, c_len, char2id, fil):
+    line_co=0
+    block_lines=9
+    example_co=0
+    readfile=open(fil, 'r')
+
+    questions=[]
+    questions_mask=[]
+    paras=[]
+    paras_mask=[]
+    e_ids=[]
+    e_masks=[]
+    c_ids=[]
+    c_masks=[]
+    c_heads=[]
+    c_tails=[]
+    l_heads=[]
+    l_tails=[]
+    e_heads=[]
+    e_tails=[]
+    labels=[]
+    labels_3c=[]
+    
+    cand=''
+    extend=''
+    context=''
+    label2co=defaultdict(int)
+    for line in readfile:
+        if len(line.strip())==0:
+            continue
+        line_co+=1
+#         print line_co, line
+        if line_co % block_lines==1 and line_co>1:
+            example_co+=1
+            cand=''
+            extend=''
+            context=''
+            if example_no_limit is not None and example_co == example_no_limit:
+                break
+        if line_co%block_lines==1 or line_co%block_lines==3 or line_co%block_lines==7 or line_co%block_lines==8:
+            continue
+        else:
+            if line_co%block_lines==2:#question
+                q_example=str_2_charidlist(line.strip(), char2id)
+                pad_q_example, q_mask=pad_idlist(q_example, max_q_len)
+                questions.append(pad_q_example)
+                questions_mask.append(q_mask)
+            elif line_co%block_lines==4: # cand
+                cand=line.strip()[2:]
+                cand_example=str_2_charidlist(cand, char2id)
+                pad_cand_example, cand_mask=pad_idlist(cand_example, c_len)
+                c_ids.append(pad_cand_example)
+                c_masks.append(cand_mask)                
+            elif line_co%block_lines==5: # exted
+                extend=line.strip()[2:]
+                extend_example=str_2_charidlist(extend, char2id)
+                pad_extend_example, extend_mask=pad_idlist(extend_example, e_len)
+                e_ids.append(pad_extend_example)
+                e_masks.append(extend_mask) 
+            elif line_co%block_lines==6: # context
+                sub_line=line.strip()
+                if len(sub_line)==1:
+                    context='UNK'
+                else:
+                    context=sub_line[2:]
+                side_label=sub_line[0]
+                if side_label =='L':
+                    paragraph=context+' '+extend+' '+cand  #str 
+                    raw_para_len= len(paragraph) # char size
+                    c_head=raw_para_len-len(cand)
+                    c_tail=raw_para_len-1
+                    l_head=raw_para_len-len(extend+' '+cand)
+                    l_tail = c_tail
+                    e_head = l_head
+                    e_tail = c_head-2 # remove the white space
+                    para_ids=str_2_charidlist(paragraph, char2id)
+                    pad_para, para_mask,para_pad_size=leftpad_idlist_padsize(para_ids, max_para_len)
+                    c_head+=para_pad_size
+                    c_tail+=para_pad_size
+                    l_head+=para_pad_size
+                    l_tail+=para_pad_size    
+                    e_head+=para_pad_size
+                    e_tail+=para_pad_size    
+                    if c_head>=max_para_len or c_tail>=max_para_len or l_head>=max_para_len or l_tail>=max_para_len or e_head>=max_para_len or e_tail>=max_para_len:
+                        print 'c_head>=max_para_len or c_tail>=max_para_len or l_head>=max_para_len or l_tail>=max_para_len:', c_head,c_tail,l_head,l_tail,max_para_len
+                        exit(0)
+                    if c_head<0 or c_tail<0 or l_head<0 or l_tail<0 or e_head<0 or e_tail<0:
+                        print 'L:'
+                        print 'c_head<0 or c_tail<0 or l_head<0 or l_tail<0:', c_head,c_tail,l_head,l_tail,max_para_len
+                        print 'len(para_ids):',len(para_ids),'para_pad_size:',para_pad_size
+                        print len(context), context
+                        print len(extend), extend
+                        print len(cand), cand
+                        exit(0)
+                elif side_label =='R':
+                    paragraph=cand+' '+extend+' '+context
+                    raw_para_len= len(paragraph)
+                    c_head=0#raw_para_len-len(cand)
+                    c_tail=len(cand)-1
+                    l_head=0
+                    l_tail = len(cand+' '+extend)-1
+                    e_head = c_tail+2 # a whole space betwen
+                    e_tail = l_tail
+                    para_ids=str_2_charidlist(paragraph, char2id)
+                    pad_para, para_mask,para_pad_size=rightpad_idlist_padsize(para_ids, max_para_len)  
+                    if c_head>=max_para_len or c_tail>=max_para_len or l_head>=max_para_len or l_tail>=max_para_len or e_head>=max_para_len or e_tail>=max_para_len:
+                        print 'c_head>=max_para_len or c_tail>=max_para_len or l_head>=max_para_len or l_tail>=max_para_len:', c_head,c_tail,l_head,l_tail,max_para_len
+                        exit(0) 
+                    if c_head<0 or c_tail<0 or l_head<0 or l_tail<0 or e_head<0 or e_tail<0:
+                        print 'R:'
+                        print 'c_head<0 or c_tail<0 or l_head<0 or l_tail<0:', c_head,c_tail,l_head,l_tail,max_para_len
+                        print 'len(para_ids):',len(para_ids),'para_pad_size:',para_pad_size
+                        print len(context), context
+                        print len(extend), extend
+                        print len(cand), cand
+                        exit(0)                 
+                else:
+                    print 'unknown label:', line
+                    exit(0)
+                #load          
+                paras.append(pad_para)
+                paras_mask.append(para_mask)
+                c_heads.append(c_head)
+                c_tails.append(c_tail)
+                l_heads.append(l_head)
+                l_tails.append(l_tail)         
+                e_heads.append(e_head)
+                e_tails.append(e_tail)                  
+                
+            elif line_co%block_lines ==0:#label
+                label_str=line.strip().split()[-1]
+                if label_str =='GOOD':
+                    label=1
+                    label_3d=1
+                elif label_str =='BAD':
+                    label=0
+                    label_3d=0
+                else:
+                    label=0
+                    label_3d=2
+
+                labels.append(label)
+                labels_3c.append(label_3d)
+                label2co[label]+=1
+        # print line_co
+#     if example_co != example_no_limit:
+#         print 'example_co != example_no_limit:', example_co,example_no_limit
+#         exit(0)
+    readfile.close()
+    print 'load', example_co, 'samples finished, majority rate:', label2co.get(1)+label2co.get(0), label2co.get(1)*1.0/(label2co.get(1)+label2co.get(0)), label2co.get(0)*1.0/(label2co.get(1)+label2co.get(0))
+
+    return     char2id, questions,questions_mask,paras,paras_mask,e_ids,e_masks,c_ids,c_masks,c_heads,c_tails,l_heads,l_tails,e_heads,e_tails, labels, labels_3c
+
+
 def  load_train_reformed_BIO(para_len_limit, q_len_limit):
     max_para_len=para_len_limit
     max_Q_len = q_len_limit
@@ -2455,7 +2643,147 @@ def  load_train_reformed_BIO4SpanRank(para_len_limit, q_len_limit):
     print 'Train Vocab size:', len(word2id)
 #     exit(0)
     return para_list, Q_list, label_list, para_mask, mask, word2id#, feature_matrixlist, pos_matrixlist, numpy.asarray(ner_matrixlist)            
+
+
+def strlist2shapelist(strlist):
+    import re
+    import itertools
+    newlist=[]
+    for word in strlist:
+        word = re.sub(r'[A-Z]', 'X', word)
+        word = re.sub(r'[a-z]', 'x', word)
+        word = re.sub('\d', '9', word) # digits to 9
+        word = ''.join(ch for ch, _ in itertools.groupby(word))
+        newlist.append(word)
+    return newlist
+        
+
+def load_SQUAD_hinrich_v4(example_no_limit, max_para_len, max_q_len, c_len, word2id, fil):
+    line_co=0
+    block_lines=7
+    example_co=0
+    readfile=open(fil, 'r')
+
+    questions=[]
+    questions_shape=[]
+    questions_mask=[]
+    paras=[]
+    paras_shape=[]
+    paras_mask=[]
+
+    c_ids=[]
+    c_ids_shape =[]
+    c_masks=[]
+    c_heads=[]
+    c_tails=[]
+
+    labels=[]
+    isInQ=[]
+
     
+    cand=''
+
+    context=''
+    paragraph=''
+    label2co=defaultdict(int)
+    for line in readfile:
+        if len(line.strip())==0:
+            continue
+        line_co+=1
+#         print line_co, line
+        if line_co % block_lines==1 and line_co>1:
+            example_co+=1
+            cand=''
+            context=''
+            paragraph=''
+            if example_no_limit is not None and example_co == example_no_limit:
+                break
+        if line_co%block_lines==2:
+            continue
+        else:
+            if line_co%block_lines==1:#question
+                q_valid_wordlist = line.strip()[8:].split()
+                q_example=strlist_2_wordidlist(q_valid_wordlist, word2id)
+                q_example_shape = strlist_2_wordidlist(strlist2shapelist(q_valid_wordlist), word2id)
+                pad_q_example, q_mask=pad_idlist(q_example, max_q_len)
+                pad_q_example_shape, _ =pad_idlist(q_example_shape, max_q_len)
+                questions.append(pad_q_example)
+                questions_shape.append(pad_q_example_shape)
+                questions_mask.append(q_mask)
+            elif line_co%block_lines==4: # cand
+                cand=line.strip().split()[1:]
+                cand_example=strlist_2_wordidlist(cand, word2id)
+                can_example_shape = strlist_2_wordidlist(strlist2shapelist(cand), word2id)
+                pad_cand_example, cand_mask=pad_idlist(cand_example, c_len)
+                pad_cand_example_shape, _=pad_idlist(can_example_shape, c_len)
+                c_ids.append(pad_cand_example)
+                c_ids_shape.append(pad_cand_example_shape)
+                c_masks.append(cand_mask)   
+            elif   line_co%block_lines==6: # is in question
+                is_label=float(line.strip().split()[-1])    
+                isInQ.append(is_label)       
+            elif line_co%block_lines==3 or line_co%block_lines==5: # context
+                sub_line=line.strip().split()
+                if len(sub_line)==1:
+                    context=['UNK']
+                elif len(sub_line)<100:
+                    context=sub_line[1:]
+                else:
+                    context=sub_line[-100:]
+                side_label=sub_line[0]
+                if side_label =='L':
+                    paragraph=context
+                
+                elif side_label == 'R':
+                    paragraph+=cand+context
+                    raw_para_len= len(paragraph)
+                    c_head=raw_para_len-len(context)- len(cand)
+                    c_tail=raw_para_len-len(context)-1
+                    
+#                     print 'current paragraph:'
+#                     print paragraph
+                    para_ids=strlist_2_wordidlist(paragraph, word2id)
+                    para_ids_shape=strlist_2_wordidlist(strlist2shapelist(paragraph), word2id)
+                    pad_para, para_mask,para_pad_size=leftpad_idlist_padsize(para_ids, max_para_len)
+                    pad_para_shape, _,_=leftpad_idlist_padsize(para_ids_shape, max_para_len)
+                    c_head+=para_pad_size
+                    c_tail+=para_pad_size
+
+                    paras.append(pad_para)
+                    paras_shape.append(pad_para_shape)
+                    paras_mask.append(para_mask)
+                    c_heads.append(c_head)
+                    c_tails.append(c_tail)
+                else:
+                    print 'unknown label:', line
+                    exit(0)
+                                    
+
+               
+                
+            elif line_co%block_lines ==0:#label
+                label_str=line.strip().split()[-1]
+                if label_str =='good':
+                    label=1
+                elif label_str =='bad':
+                    label=0
+
+
+                labels.append(label)
+                label2co[label]+=1
+        # print line_co
+#     if example_co != example_no_limit:
+#         print 'example_co != example_no_limit:', example_co,example_no_limit
+#         exit(0)
+    readfile.close()
+#     print 'load', example_co, 'samples finished'
+    print 'load', example_co, 'samples finished, majority rate:', label2co.get(1)+label2co.get(0), label2co.get(1)*1.0/(label2co.get(1)+label2co.get(0)), label2co.get(0)*1.0/(label2co.get(1)+label2co.get(0))
+
+
+    return     word2id, questions,questions_mask,paras,paras_mask,c_ids,c_masks,c_heads,c_tails,labels, isInQ, paras_shape, c_ids_shape, questions_shape
+
+
+   
 if __name__ == '__main__':
 #     store_SQUAD_train()
     store_SQUAD_dev()
