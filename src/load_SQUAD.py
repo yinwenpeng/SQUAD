@@ -2656,11 +2656,38 @@ def strlist2shapelist(strlist):
         word = ''.join(ch for ch, _ in itertools.groupby(word))
         newlist.append(word)
     return newlist
-        
 
-def load_SQUAD_hinrich_v4(example_no_limit, max_para_len, max_q_len, c_len, word2id, fil):
+def wordstr2trichar(wordstr):
+    results=[]
+    for i in range(len(wordstr)-3):
+        results.append(wordstr[i:i+3])
+    return results
+        
+           
+def wordlist2tricharIDlist(wordlist, trichar2id,max_q_len, max_trichar_len):
+    idlist=[]
+    masks=[]
+    for id, word in enumerate(wordlist):
+        if id < max_q_len:#valid word
+            trichar_sequence = wordstr2trichar(word)
+            trichar_idlist = strlist_2_wordidlist(trichar_sequence, trichar2id)
+            pad_trichar_idlist, trichar_mask=pad_idlist(trichar_idlist, max_trichar_len)
+            idlist+=pad_trichar_idlist
+            masks+=trichar_mask
+    
+    pad_word_size = max_q_len - len(idlist)/max_trichar_len
+    if pad_word_size>0:
+        padlist = [0]*(max_trichar_len*pad_word_size)
+        idlist=padlist + idlist
+        masks = padlist + masks
+    return idlist, masks
+            
+            
+    
+
+def load_SQUAD_hinrich_v4(example_no_limit, max_para_len, max_q_len, max_trichar_len, word2id, trichar2id,fil):
     line_co=0
-    block_lines=7
+    block_lines=10
     example_co=0
     readfile=open(fil, 'r')
 
@@ -2670,117 +2697,170 @@ def load_SQUAD_hinrich_v4(example_no_limit, max_para_len, max_q_len, c_len, word
     paras=[]
     paras_shape=[]
     paras_mask=[]
+    types=[]
+    types_shape=[]
 
-    c_ids=[]
-    c_ids_shape =[]
-    c_masks=[]
-    c_heads=[]
-    c_tails=[]
 
     labels=[]
-    isInQ=[]
-
+    isInQ_paras=[]#is a matrix, left context, cand, right context
     
-    cand=''
+    question_trichar_ids=[]
+    question_trichar_masks=[]
+    para_trichar_ids=[]
+    para_trichar_masks=[]
+    type_trichar_ids=[]
+    type_trichar_masks=[]
+        
+#     cand=[]
 
-    context=''
-    paragraph=''
+
+    paragraph=[]#is a matrix, left context, cand, right context
+    question=[]
+    type=[]
+    isInQ_para=[]
     label2co=defaultdict(int)
+
+
     for line in readfile:
+#         line=readfile.readline()
+
         if len(line.strip())==0:
             continue
         line_co+=1
-#         print line_co, line
+#         if example_co >=487859:
+#             print 'line_co:', line_co, ':', line.strip()
         if line_co % block_lines==1 and line_co>1:
+            #preprocess
+            #question, we need word id, word shape, word trichar
+#             if example_co >=487859:
+#                 print 'line_co:', line_co, ':', line.strip()
+            q_example=strlist_2_wordidlist(question, word2id)
+            q_example_shape = strlist_2_wordidlist(strlist2shapelist(question), word2id)
+            q_trichar_idlist, q_trichar_masks = wordlist2tricharIDlist(question, trichar2id,max_q_len, max_trichar_len)
+            
+            pad_q_example, q_mask=pad_idlist(q_example, max_q_len)
+            pad_q_example_shape, _ =pad_idlist(q_example_shape, max_q_len)
+            
+            questions.append(pad_q_example)
+            questions_shape.append(pad_q_example_shape)
+            questions_mask.append(q_mask)
+            question_trichar_ids.append(q_trichar_idlist)
+            question_trichar_masks.append(q_trichar_masks)            
+            
+            #paragraph, we need truncate, word id, shape, word trichar
+            context_size= (max_para_len-1)/2
+
+            if len(paragraph[0])+len(paragraph[1])+len(paragraph[2]) != len(isInQ_para[0])+len(isInQ_para[1])+len(isInQ_para[2]):
+                print 'len(paragraph[0])+len(paragraph[1])+len(paragraph[2]) != len(isInQ_para[0])+len(isInQ_para[1])+len(isInQ_para[2]):', len(paragraph[0])+len(paragraph[1])+len(paragraph[2]), len(isInQ_para[0])+len(isInQ_para[1])+len(isInQ_para[2])
+                exit(0)
+
+            leftpad_size=  context_size - len(paragraph[0]) if context_size > len(paragraph[0]) else 0
+            rightpad_size=  context_size - len(paragraph[2]) if context_size > len(paragraph[2]) else 0
+
+            new_para=(['UNK']*context_size+paragraph[0])[-context_size:]+paragraph[1]+(paragraph[2]+['UNK']*context_size)[:context_size] #totally 50+1+50 words
+            new_isInQ=([0]*context_size+isInQ_para[0])[-context_size:]+isInQ_para[1]+(isInQ_para[2]+[0]*context_size)[:context_size]  #totally 50+1+50 labels
+            para_mask = [0.0]* leftpad_size+[1.0]*(max_para_len-leftpad_size-rightpad_size) +[0.0]*rightpad_size
+            
+            para_ids=strlist_2_wordidlist(new_para, word2id)
+            para_ids_shape=strlist_2_wordidlist(strlist2shapelist(new_para), word2id)
+            para_trichar_idlist, para_trichar_mask = wordlist2tricharIDlist(new_para, trichar2id,max_para_len, max_trichar_len)    
+            pad_para_shape, _,_=leftpad_idlist_padsize(para_ids_shape, max_para_len)
+            
+            paras.append(para_ids)
+            paras_shape.append(pad_para_shape)
+            paras_mask.append(para_mask)
+            para_trichar_ids.append(para_trichar_idlist)
+            para_trichar_masks.append(para_trichar_mask) 
+            isInQ_paras.append(new_isInQ)
+            
+            #type
+            type_example=strlist_2_wordidlist(type, word2id)
+            type_example_shape = strlist_2_wordidlist(strlist2shapelist(type), word2id)
+            type_trichar_idlist, type_trichar_mask = wordlist2tricharIDlist(type, trichar2id,2, max_trichar_len)
+            types.append(type_example)
+            types_shape.append(type_example_shape)
+            type_trichar_ids.append(type_trichar_idlist)
+            type_trichar_masks.append(type_trichar_mask)             
+            #reset variables                                
             example_co+=1
-            cand=''
-            context=''
-            paragraph=''
+            paragraph=[]
+            question=[]
+            type=[]
+            isInQ_para=[]
+            if example_co %50000==0:
+                print 'example_co:', example_co
             if example_no_limit is not None and example_co == example_no_limit:
                 break
-        if line_co%block_lines==2:
+        if line_co%block_lines==3:#ground truth
+#             if example_co >=487859:
+#                 print 'line_co:', line_co, ':', line.strip()
             continue
         else:
             if line_co%block_lines==1:#question
-                q_valid_wordlist = line.strip()[8:].split()
-                q_example=strlist_2_wordidlist(q_valid_wordlist, word2id)
-                q_example_shape = strlist_2_wordidlist(strlist2shapelist(q_valid_wordlist), word2id)
-                pad_q_example, q_mask=pad_idlist(q_example, max_q_len)
-                pad_q_example_shape, _ =pad_idlist(q_example_shape, max_q_len)
-                questions.append(pad_q_example)
-                questions_shape.append(pad_q_example_shape)
-                questions_mask.append(q_mask)
-            elif line_co%block_lines==4: # cand
-                cand=line.strip().split()[1:]
-                cand_example=strlist_2_wordidlist(cand, word2id)
-                can_example_shape = strlist_2_wordidlist(strlist2shapelist(cand), word2id)
-                pad_cand_example, cand_mask=pad_idlist(cand_example, c_len)
-                pad_cand_example_shape, _=pad_idlist(can_example_shape, c_len)
-                c_ids.append(pad_cand_example)
-                c_ids_shape.append(pad_cand_example_shape)
-                c_masks.append(cand_mask)   
-            elif   line_co%block_lines==6: # is in question
-                is_label=float(line.strip().split()[-1])    
-                isInQ.append(is_label)       
-            elif line_co%block_lines==3 or line_co%block_lines==5: # context
-                sub_line=line.strip().split()
-                if len(sub_line)==1:
-                    context=['UNK']
-                elif len(sub_line)<100:
-                    context=sub_line[1:]
-                else:
-                    context=sub_line[-100:]
-                side_label=sub_line[0]
-                if side_label =='L':
-                    paragraph=context
-                
-                elif side_label == 'R':
-                    paragraph+=cand+context
-                    raw_para_len= len(paragraph)
-                    c_head=raw_para_len-len(context)- len(cand)
-                    c_tail=raw_para_len-len(context)-1
-                    
-#                     print 'current paragraph:'
-#                     print paragraph
-                    para_ids=strlist_2_wordidlist(paragraph, word2id)
-                    para_ids_shape=strlist_2_wordidlist(strlist2shapelist(paragraph), word2id)
-                    pad_para, para_mask,para_pad_size=leftpad_idlist_padsize(para_ids, max_para_len)
-                    pad_para_shape, _,_=leftpad_idlist_padsize(para_ids_shape, max_para_len)
-                    c_head+=para_pad_size
-                    c_tail+=para_pad_size
+#                 if example_co >=487859:
+#                     print 'line_co:', line_co, ':', line.strip()
+                question = line.strip().split()[4:]
 
-                    paras.append(pad_para)
-                    paras_shape.append(pad_para_shape)
-                    paras_mask.append(para_mask)
-                    c_heads.append(c_head)
-                    c_tails.append(c_tail)
-                else:
-                    print 'unknown label:', line
-                    exit(0)
-                                    
-
-               
-                
+            elif line_co%block_lines==2: # type words in question
+#                 if example_co >=487859:
+#                     print 'line_co:', line_co, ':', line.strip()
+                type=line.strip().split()[1:]  #two words  
+            elif line_co%block_lines==4 or line_co%block_lines==6 or line_co%block_lines==8: # context words
+#                 if example_co >=487859:
+#                     print 'line_co:', line_co, ':', line.strip()
+                if line_co%block_lines==4:
+                    paragraph.append(line.strip().split()[2:])
+                if line_co%block_lines==6:
+                    paragraph.append(line.strip().split()[1:])
+                if line_co%block_lines==8:
+                    paragraph.append(line.strip().split()[1:-1])                    
+            elif line_co%block_lines==5 or line_co%block_lines==7 or line_co%block_lines==9:
+#                 if example_co >=487859:
+#                     print 'line_co:', line_co, ':', line.strip()
+                if line_co%block_lines==5:
+                    isInQ_para.append(map(int, line.strip().split()[2:]))
+                if line_co%block_lines==7:
+                    isInQ_para.append(map(int, line.strip().split()[1:]))
+                if line_co%block_lines==9:
+#                     print 'line:', line, line_co
+                    isInQ_para.append(map(int, line.strip().split()[1:-1]))                   
             elif line_co%block_lines ==0:#label
+#                 if example_co >=487859:
+#                     print 'line_co:', line_co, ':', line.strip()
                 label_str=line.strip().split()[-1]
-                if label_str =='good':
-                    label=1
-                elif label_str =='bad':
-                    label=0
-
+                
+                label = 1 if label_str =='good' else 0
 
                 labels.append(label)
                 label2co[label]+=1
-        # print line_co
-#     if example_co != example_no_limit:
-#         print 'example_co != example_no_limit:', example_co,example_no_limit
-#         exit(0)
+
     readfile.close()
 #     print 'load', example_co, 'samples finished'
     print 'load', example_co, 'samples finished, majority rate:', label2co.get(1)+label2co.get(0), label2co.get(1)*1.0/(label2co.get(1)+label2co.get(0)), label2co.get(0)*1.0/(label2co.get(1)+label2co.get(0))
 
 
-    return     word2id, questions,questions_mask,paras,paras_mask,c_ids,c_masks,c_heads,c_tails,labels, isInQ, paras_shape, c_ids_shape, questions_shape
+    
+
+    return     word2id, trichar2id, questions,questions_mask,paras,paras_mask,labels, isInQ_paras, paras_shape, questions_shape, types, types_shape,question_trichar_ids,question_trichar_masks,para_trichar_ids,para_trichar_masks,type_trichar_ids,type_trichar_masks
+
+# def load_SQUAD_hinrich_v4_forfun(example_no_limit, max_para_len, max_q_len, max_trichar_len, word2id, trichar2id,fil):
+# #     line_co=0
+# #     readfile=open(fil, 'r')
+# #     for line in readfile:
+# #         if len(line.strip())==0:
+# #             continue
+# #         line_co+=1
+# #         print line_co, ':',line.strip()
+# #         if line_co==20:
+# #             exit(0)
+#     squadfile = open('/mounts/Users/cisintern/hs/l/workhs/yin/20170320/trn20170320.txt','r')
+#     count = -1
+#     while True:
+#         count += 1
+#         if count>=15:
+#             break
+#         myline = squadfile.readline()
+#         print count,myline.strip()
 
 
    

@@ -1745,6 +1745,18 @@ def dropout_layer(state_before, use_noise, trng):
     return proj
 
 
+def BatchMatchMatrix_between_2tensors(tensor1, tensor2):
+    #assume both are (batch, hidden ,para_len), (batch, hidden ,q_len)
+    def example_in_batch(para_matrix, q_matrix):
+        #assume both are (hidden, para_len),  (hidden, q_len)
+        transpose_para_matrix=para_matrix.T  #(para_len, hidden)
+        interaction_matrix=T.dot(transpose_para_matrix, q_matrix) #(para_len, q_len)
+        return interaction_matrix
+    batch_matrix,_ = theano.scan(fn=example_in_batch,
+                                   outputs_info=None,
+                                   sequences=[tensor1, tensor2])    #batch_q_reps (batch, hidden, para_len)
+    return batch_matrix #(batch, para_len, q_len)
+
 def attention_dot_prod_between_2tensors(tensor1, tensor2):
     #assume both are (batch, hidden ,para_len), (batch, hidden ,q_len)
     def example_in_batch(para_matrix, q_matrix):
