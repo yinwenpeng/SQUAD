@@ -74,6 +74,23 @@ def evaluate(dataset, predictions):
 
     return {'exact_match': exact_match, 'f1': f1}
 
+def evaluate_groundtruthlist_predlist(grounds, predictions):
+    f1 = exact_match = total = 0
+
+    for i in range(len(grounds)):
+        total+=1
+        prediction = predictions[i]
+        ground_truths=[grounds[i]]
+        exact_match += metric_max_over_ground_truths(
+            exact_match_score, prediction, ground_truths)
+        f1 += metric_max_over_ground_truths(
+            f1_score, prediction, ground_truths)
+
+    exact_match = 100.0 * exact_match / total
+    f1 = 100.0 * f1 / total
+
+    return {'exact_match': exact_match, 'f1': f1}
+
 def standard_eval( dataset_file, prediction_file):
 #     expected_version = '1.1'
 #     parser = argparse.ArgumentParser(

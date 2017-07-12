@@ -13,6 +13,14 @@ import numpy as np
 from scipy.spatial.distance import cosine
 import cPickle
 
+
+
+def cosine_matrix1_matrix2_rowwise(M1, M2):
+    #assume both matrix are in shape (batch, hidden)
+    dot_prod=T.sum(M1*M2, axis=1) #batch
+    norm1=T.sqrt(1e-20+T.sum(M1**2,axis=1)) #batch
+    norm2=T.sqrt(1e-20+T.sum(M2**2,axis=1)) #batch
+    return dot_prod/(norm1*norm2+1e-20)
 def create_AttentionMatrix_para(rng, n_in, n_out):
 
     W1_values = numpy.asarray(rng.uniform(
@@ -612,6 +620,8 @@ class LSTM_Batch_Tensor_Input_with_Mask(object):
                                     n_steps=nsteps)
         self.output_tensor = rval[0].dimshuffle(1,2,0) # rval[0]: (nsamples, batch, hidden_size), out_tensor: (batch, hidden, nsamples)
         self.output_sent_rep=self.output_tensor[:,:,-1] # (batch, hidden_size)
+
+
 
 class GRU_Batch_Tensor_Input(object):
     def __init__(self, X, hidden_dim, U, W, b, bptt_truncate):
