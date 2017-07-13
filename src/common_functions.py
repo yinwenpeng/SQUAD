@@ -2050,3 +2050,117 @@ def log_sum_exp(x, axis=None):
     xmax = x.max(axis=axis, keepdims=True)
     xmax_ = x.max(axis=axis)
     return xmax_ + T.log(T.exp(x - xmax).sum(axis=axis))
+
+def squad_cnn_rank_spans(rng, common_input_p, common_input_q, char_common_input_p, char_common_input_q,batch_size, p_len_limit,q_len_limit, 
+                         emb_size, char_emb_size,char_len,filter_size,char_filter_size,hidden_size, conv_W_1, conv_b_1,conv_W_2, conv_b_2,
+                         conv_W_char,conv_b_char,
+                         para_mask, q_mask, char_p_masks,char_q_masks):
+    conv_input_p_char = char_common_input_p.dimshuffle(0,'x',2,1)       #(batch_size, 1, emb_size, maxsenlen+width-1)
+    conv_model_p_char = Conv_with_input_para(rng, input=conv_input_p_char,
+             image_shape=(batch_size*p_len_limit, 1, char_emb_size, char_len),
+             filter_shape=(char_emb_size, 1, char_emb_size, char_filter_size), W=conv_W_char, b=conv_b_char)
+    conv_output_p_char_tensor3=conv_model_p_char.narrow_conv_out.reshape((batch_size*p_len_limit, char_emb_size, char_len-char_filter_size+1))
+    repeat_p_char_mask=T.repeat(char_p_masks[:,char_filter_size-1:].reshape((batch_size*p_len_limit, 1, char_len-char_filter_size+1 )), char_emb_size, axis=1) #(batch_size, emb_size, maxSentLen-filter_size+1)
+    repeat_p_char_mask=(1.0-repeat_p_char_mask)*(repeat_p_char_mask-10)
+    p_char_rep=T.max(conv_output_p_char_tensor3+repeat_p_char_mask, axis=2) #(batch_size*q_len, char_emb_size) # each sentence then have an embedding of length hidden_size
+    p_word_char_reps = p_char_rep.reshape((batch_size, p_len_limit, char_emb_size)).dimshuffle(0,'x', 2,1)
+    #test
+#     test_conv_model_p_char = Conv_with_input_para(rng, input=conv_input_p_char,
+#              image_shape=(batch_size*test_p_len_limit, 1, char_emb_size, char_len),
+#              filter_shape=(char_emb_size, 1, char_emb_size, char_filter_size), W=conv_W_char, b=conv_b_char)
+#     test_conv_output_p_char_tensor3=test_conv_model_p_char.narrow_conv_out.reshape((batch_size*test_p_len_limit, char_emb_size, char_len-char_filter_size+1))
+#     test_repeat_p_char_mask=T.repeat(char_p_masks[:,char_filter_size-1:].reshape((batch_size*test_p_len_limit, 1, char_len-char_filter_size+1 )), char_emb_size, axis=1) #(batch_size, emb_size, maxSentLen-filter_size+1)
+#     test_repeat_p_char_mask=(1.0-test_repeat_p_char_mask)*(test_repeat_p_char_mask-10)
+#     test_p_char_rep=T.max(test_conv_output_p_char_tensor3+test_repeat_p_char_mask, axis=2) #(batch_size*q_len, char_emb_size) # each sentence then have an embedding of length hidden_size
+#     test_p_word_char_reps = test_p_char_rep.reshape((batch_size, test_p_len_limit, char_emb_size)).dimshuffle(0,'x',2,1)
+
+
+    conv_input_q_char = char_common_input_q.dimshuffle(0,'x',2,1)       #(batch_size, 1, emb_size, maxsenlen+width-1)
+    conv_model_q_char = Conv_with_input_para(rng, input=conv_input_q_char,
+             image_shape=(batch_size*q_len_limit, 1, char_emb_size, char_len),
+             filter_shape=(char_emb_size, 1, char_emb_size, char_filter_size), W=conv_W_char, b=conv_b_char)
+    conv_output_q_char_tensor3=conv_model_q_char.narrow_conv_out.reshape((batch_size*q_len_limit, char_emb_size, char_len-char_filter_size+1))
+    repeat_q_char_mask=T.repeat(char_q_masks[:,char_filter_size-1:].reshape((batch_size*q_len_limit, 1, char_len-char_filter_size+1 )), char_emb_size, axis=1) #(batch_size, emb_size, maxSentLen-filter_size+1)
+    repeat_q_char_mask=(1.0-repeat_q_char_mask)*(repeat_q_char_mask-10)
+    q_char_rep=T.max(conv_output_q_char_tensor3+repeat_q_char_mask, axis=2) #(batch_size*q_len, char_emb_size) # each sentence then have an embedding of length hidden_size
+    q_word_char_reps = q_char_rep.reshape((batch_size, q_len_limit, char_emb_size)).dimshuffle(0,'x',2,1)
+
+
+    zero_pad_tensor4_1 = T.zeros((batch_size, 1, emb_size+char_emb_size, filter_size[0]/2), dtype=theano.config.floatX)+1e-8  # to get rid of nan in CNN gradient
+
+
+
+    conv_input_p_1 = T.concatenate([zero_pad_tensor4_1,
+                T.concatenate([common_input_p.dimshuffle((0,'x', 2,1)), p_word_char_reps], axis=2),
+                zero_pad_tensor4_1], axis=3)        #(batch_size, 1, emb_size, maxsenlen+width-1)
+#     test_conv_input_p_1 = T.concatenate([zero_pad_tensor4_1,
+#                 T.concatenate([common_input_p.dimshuffle((0,'x', 2,1)), test_p_word_char_reps], axis=2),
+#                 zero_pad_tensor4_1], axis=3)
+    conv_model_p_1 = Conv_with_input_para(rng, input=conv_input_p_1,
+             image_shape=(batch_size, 1, emb_size+char_emb_size, p_len_limit+filter_size[0]-1),
+             filter_shape=(hidden_size, 1, emb_size+char_emb_size, filter_size[0]), W=conv_W_1, b=conv_b_1)
+    conv_output_p_1=conv_model_p_1.narrow_conv_out*para_mask.dimshuffle(0,'x','x',1) #(batch, 1, hidden_size, maxsenlen)
+    #test
+#     test_conv_model_p_1 = Conv_with_input_para(rng, input=test_conv_input_p_1,
+#              image_shape=(batch_size, 1, emb_size+char_emb_size, test_p_len_limit+filter_size[0]-1),
+#              filter_shape=(hidden_size, 1, emb_size+char_emb_size, filter_size[0]), W=conv_W_1, b=conv_b_1)
+#     test_conv_output_p_1=test_conv_model_p_1.narrow_conv_out*para_mask.dimshuffle(0,'x','x',1) #(batch, 1, hidden_size, maxsenlen)
+
+    conv_input_q_1 = T.concatenate([zero_pad_tensor4_1,
+                        T.concatenate([common_input_q.dimshuffle((0,'x', 2,1)), q_word_char_reps], axis=2),
+                        zero_pad_tensor4_1], axis=3)        #(batch_size, 1, emb_size, maxsenlen+width-1)
+    conv_model_q_1 = Conv_with_input_para(rng, input=conv_input_q_1,
+             image_shape=(batch_size, 1, emb_size+char_emb_size, q_len_limit+filter_size[0]-1),
+             filter_shape=(hidden_size, 1, emb_size+char_emb_size, filter_size[0]), W=conv_W_1, b=conv_b_1)
+    conv_output_q_1=conv_model_q_1.narrow_conv_out*q_mask.dimshuffle(0,'x','x',1) #(batch, 1, hidden_size, maxsenlen)
+
+    #the second layer
+    zero_pad_tensor4_2 = T.zeros((batch_size, 1, hidden_size, filter_size[1]/2), dtype=theano.config.floatX)+1e-8
+    conv_input_p_2 = T.concatenate([zero_pad_tensor4_2, conv_output_p_1, zero_pad_tensor4_2], axis=3)        #(batch_size, 1, emb_size, maxsenlen+width-1)
+    conv_model_p_2 = Conv_with_input_para(rng, input=conv_input_p_2,
+             image_shape=(batch_size, 1, hidden_size, p_len_limit+filter_size[1]-1),
+             filter_shape=(hidden_size, 1, hidden_size, filter_size[1]), W=conv_W_2, b=conv_b_2)
+    conv_output_p_tensor3=conv_model_p_2.narrow_conv_out.reshape((batch_size, hidden_size, p_len_limit))
+    conv_output_p_tensor3=conv_output_p_tensor3*para_mask.dimshuffle(0,'x',1) #(batch, hidden_size, maxsenlen)
+    #test
+#     test_conv_input_p_2 = T.concatenate([zero_pad_tensor4_2, test_conv_output_p_1, zero_pad_tensor4_2], axis=3)        #(batch_size, 1, emb_size, maxsenlen+width-1)
+#     test_conv_model_p_2 = Conv_with_input_para(rng, input=test_conv_input_p_2,
+#           image_shape=(batch_size, 1, hidden_size, test_p_len_limit+filter_size[1]-1),
+#           filter_shape=(hidden_size, 1, hidden_size, filter_size[1]), W=conv_W_2, b=conv_b_2)
+#     test_conv_output_p_tensor3=test_conv_model_p_2.narrow_conv_out.reshape((batch_size, hidden_size, true_p_len))
+#     test_conv_output_p_tensor3=test_conv_output_p_tensor3*para_mask.dimshuffle(0,'x',1) #(batch, hidden_size, maxsenlen)
+
+
+    conv_input_q_2 = T.concatenate([zero_pad_tensor4_2, conv_output_q_1, zero_pad_tensor4_2], axis=3)        #(batch_size, 1, emb_size, maxsenlen+width-1)
+    conv_model_q_2 = Conv_with_input_para(rng, input=conv_input_q_2,
+             image_shape=(batch_size, 1, hidden_size, q_len_limit+filter_size[1]-1),
+             filter_shape=(hidden_size, 1, hidden_size, filter_size[1]), W=conv_W_2, b=conv_b_2)
+    conv_output_q_tensor3=conv_model_q_2.narrow_conv_out.reshape((batch_size, hidden_size, q_len_limit))
+
+    repeat_q_mask=T.repeat(q_mask.reshape((batch_size, 1, q_len_limit)), hidden_size, axis=1) #(batch_size, emb_size, maxSentLen-filter_size+1)
+    repeat_q_mask=(1.0-repeat_q_mask)*(repeat_q_mask-10)
+    q_rep=T.max(conv_output_q_tensor3+repeat_q_mask, axis=2) #(batch_size, hidden_size) # each sentence then have an embedding of length hidden_size
+
+
+    p2loop_matrix = conv_output_p_tensor3.reshape((conv_output_p_tensor3.shape[0]*conv_output_p_tensor3.shape[1], conv_output_p_tensor3.shape[2]))#(batch* hidden_size, maxsenlen)
+    gram_1 = p2loop_matrix
+    gram_2 = T.max(T.concatenate([p2loop_matrix[:,:-1].dimshuffle('x',0,1), p2loop_matrix[:,1:].dimshuffle('x',0,1)], axis=0), axis=0) #(batch* hidden_size, maxsenlen-1)
+    gram_3 = T.max(T.concatenate([p2loop_matrix[:,:-2].dimshuffle('x',0,1), p2loop_matrix[:,1:-1].dimshuffle('x',0,1),p2loop_matrix[:,2:].dimshuffle('x',0,1)], axis=0), axis=0) #(batch* hidden_size, maxsenlen-2)
+    gram_4 = T.max(T.concatenate([p2loop_matrix[:,:-3].dimshuffle('x',0,1), p2loop_matrix[:,1:-2].dimshuffle('x',0,1),p2loop_matrix[:,2:-1].dimshuffle('x',0,1),p2loop_matrix[:,3:].dimshuffle('x',0,1)], axis=0), axis=0) #(batch* hidden_size, maxsenlen-3)
+    gram_5 = T.max(T.concatenate([p2loop_matrix[:,:-4].dimshuffle('x',0,1), p2loop_matrix[:,1:-3].dimshuffle('x',0,1),p2loop_matrix[:,2:-2].dimshuffle('x',0,1),p2loop_matrix[:,3:-1].dimshuffle('x',0,1),p2loop_matrix[:,4:].dimshuffle('x',0,1)], axis=0), axis=0) #(batch* hidden_size, maxsenlen-4)
+    gram_size = 5*p_len_limit-(0+1+2+3+4)
+    span_reps=T.concatenate([gram_1, gram_2,gram_3,gram_4,gram_5], axis=1).reshape((batch_size, hidden_size, gram_size)) #(batch, hidden_size, maxsenlen-(0+1+2+3+4))
+    input4score = T.concatenate([span_reps, T.repeat(q_rep.dimshuffle(0,1,'x'), gram_size, axis=2)], axis=1) #(batch, 2*hidden, 5*p_len_limit-(0+1+2+3+4))
+
+    #test
+#     test_p2loop_matrix = test_conv_output_p_tensor3.reshape((test_conv_output_p_tensor3.shape[0]*test_conv_output_p_tensor3.shape[1], test_conv_output_p_tensor3.shape[2]))#(batch* hidden_size, maxsenlen)
+#     test_gram_1 = test_p2loop_matrix
+#     test_gram_2 = T.max(T.concatenate([test_p2loop_matrix[:,:-1].dimshuffle('x',0,1), test_p2loop_matrix[:,1:].dimshuffle('x',0,1)], axis=0), axis=0) #(batch* hidden_size, maxsenlen-1)
+#     test_gram_3 = T.max(T.concatenate([test_p2loop_matrix[:,:-2].dimshuffle('x',0,1), test_p2loop_matrix[:,1:-1].dimshuffle('x',0,1),test_p2loop_matrix[:,2:].dimshuffle('x',0,1)], axis=0), axis=0) #(batch* hidden_size, maxsenlen-2)
+#     test_gram_4 = T.max(T.concatenate([test_p2loop_matrix[:,:-3].dimshuffle('x',0,1), test_p2loop_matrix[:,1:-2].dimshuffle('x',0,1),test_p2loop_matrix[:,2:-1].dimshuffle('x',0,1),test_p2loop_matrix[:,3:].dimshuffle('x',0,1)], axis=0), axis=0) #(batch* hidden_size, maxsenlen-3)
+#     test_gram_5 = T.max(T.concatenate([test_p2loop_matrix[:,:-4].dimshuffle('x',0,1), test_p2loop_matrix[:,1:-3].dimshuffle('x',0,1),test_p2loop_matrix[:,2:-2].dimshuffle('x',0,1),test_p2loop_matrix[:,3:-1].dimshuffle('x',0,1),test_p2loop_matrix[:,4:].dimshuffle('x',0,1)], axis=0), axis=0) #(batch* hidden_size, maxsenlen-4)
+#     test_gram_size = 5*true_p_len-(0+1+2+3+4)
+#     test_span_reps=T.concatenate([test_gram_1, test_gram_2,test_gram_3,test_gram_4,test_gram_5], axis=1).reshape((batch_size, hidden_size, test_gram_size)) #(batch, hidden_size, maxsenlen-(0+1+2+3+4))
+#     test_input4score = T.concatenate([test_span_reps, T.repeat(q_rep.dimshuffle(0,1,'x'), test_gram_size, axis=2)], axis=1) #(batch, 2*hidden, 5*p_len_limit-(0+1+2+3+4))
+    return input4score
+
