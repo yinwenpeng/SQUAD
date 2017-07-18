@@ -895,14 +895,15 @@ def load_word2vec():
 def load_glove():
     word2vec = {}
 
-    print "==> loading 300d glove"
+    print "==> loading 300d word2vec"
 #     with open(os.path.join(os.path.dirname(os.path.realpath(__file__)), "data/glove/glove.6B." + str(dim) + "d.txt")) as f:
-    f=open('/mounts/data/proj/wenpeng/Dataset/glove.6B.300d.txt', 'r')  #glove.6B.100d.txt
+#     f=open('/mounts/data/proj/wenpeng/Dataset/word2vec_words_300d.txt', 'r')  #glove.6B.100d.txt, word2vec_words_300d.txt, glove.6B.300d.txt
+    f=open('sub_embs.txt', 'r')
     for line in f:
         l = line.split()
         word2vec[l[0]] = map(float, l[1:])
 
-    print "==> glove is loaded"
+    print "==> word2vec is loaded"
 
     return word2vec
 def overlap_degree(sent_wordlist, q_wordlist):
@@ -3214,6 +3215,48 @@ def load_squad_cnn_rank_span_train(word2id, char2id, p_len_limit, q_len_limit, c
     print 'load train over, ', line_co, ' question-para pairs'
     return     questions,paragraphs,q_masks,p_masks,char_questions, char_paragraphs, char_q_masks,char_p_masks, labels, word2id, char2id
 
+def load_squad_cnn_rank_word_train(word2id, char2id, p_len_limit, q_len_limit, char_len):
+    readfile=open(path+'train-TwoStageRanking-SpanLevel.txt', 'r')
+
+    questions=[]
+    paragraphs=[]
+    q_masks=[]
+    p_masks=[]
+
+    char_questions=[]
+    char_paragraphs=[]
+    char_q_masks=[]
+    char_p_masks=[]
+
+    labels=[]
+    line_co=0
+    for line in readfile:
+        parts=line.strip().split('\t')
+        question_wordlist=parts[0].split()
+        para_wordlist=parts[1].split()
+        start_label = int(parts[3])
+        end_label = int(parts[4])
+
+        q_idlist, q_mask=transfer_wordlist_2_idlist_with_maxlen(question_wordlist, word2id, q_len_limit)
+        p_idlist, p_mask=transfer_wordlist_2_idlist_with_maxlen(para_wordlist, word2id, p_len_limit)
+        q_char_idlist, q_char_mask = wordList_2_charIdList(question_wordlist, q_len_limit, char_len, char2id)
+        p_char_idlist, p_char_mask = wordList_2_charIdList(para_wordlist, p_len_limit, char_len, char2id)
+        questions.append(q_idlist)
+        paragraphs.append(p_idlist)
+        q_masks.append(q_mask)
+        p_masks.append(p_mask)
+
+        char_questions.append(q_char_idlist)
+        char_paragraphs.append(p_char_idlist)
+        char_q_masks.append(q_char_mask)
+        char_p_masks.append(p_char_mask)
+
+        labels.append([start_label, end_label])
+        line_co+=1
+    print 'load train over, ', line_co, ' question-para pairs'
+    return     questions,paragraphs,q_masks,p_masks,char_questions, char_paragraphs, char_q_masks,char_p_masks, labels, word2id, char2id
+
+
 def load_squad_cnn_rank_span_dev(word2id, char2id, p_len_limit, q_len_limit, char_len):
     readfile=open(path+'dev-TwoStageRanking-SpanLevel.txt', 'r')
 
@@ -3261,6 +3304,82 @@ def load_squad_cnn_rank_span_dev(word2id, char2id, p_len_limit, q_len_limit, cha
         line_co+=1
     print 'load dev over, ', line_co, ' question-sent pairs'
     return     questions,paragraphs,q_masks,p_masks,char_questions, char_paragraphs, char_q_masks,char_p_masks, q_ids, word2id, char2id, para_wordlists
+
+
+def load_squad_cnn_rank_word_dev(word2id, char2id, p_len_limit, q_len_limit, char_len):
+    readfile=open(path+'dev-TwoStageRanking-SpanLevel.txt', 'r')
+
+    questions=[]
+    paragraphs=[]
+    para_wordlists=[]
+    q_masks=[]
+    p_masks=[]
+
+    char_questions=[]
+    char_paragraphs=[]
+    char_q_masks=[]
+    char_p_masks=[]
+
+    labels=[] #used to store starts
+    q_ids=[] #used to store question ids
+    line_co=0
+
+    ground_truth_ans_outside=0
+    max_para_len =0
+    for line in readfile:
+        parts=line.strip().split('\t')
+        q_id = parts[0]
+        question_wordlist=parts[1].split()
+        para_wordlist=parts[2].split()
+        if len(para_wordlist)> max_para_len:
+            max_para_len = len(para_wordlist)
+        corr_sent_label = parts[3].strip()
+
+
+        q_idlist, q_mask=transfer_wordlist_2_idlist_with_maxlen(question_wordlist, word2id, q_len_limit)
+        p_idlist, p_mask=transfer_wordlist_2_idlist_with_maxlen(para_wordlist, word2id, p_len_limit)
+
+        q_char_idlist, q_char_mask = wordList_2_charIdList(question_wordlist, q_len_limit, char_len, char2id)
+        p_char_idlist, p_char_mask = wordList_2_charIdList(para_wordlist, p_len_limit, char_len, char2id)
+
+        if p_len_limit > len(para_wordlist):
+            truncate_para_wordlist = ['UNK']*(p_len_limit - len(para_wordlist))+para_wordlist
+            # para_wordlists.append(['UNK']*(p_len_limit - len(para_wordlist))+para_wordlist)
+        else:
+            half_index = len(para_wordlist)/2
+            truncate_para_wordlist = para_wordlist[half_index-p_len_limit/2:half_index-p_len_limit/2+p_len_limit]
+        para_wordlists.append(truncate_para_wordlist)
+        startlist=set()
+        if corr_sent_label == '1':
+            truncate_q_str = ' '.join(truncate_para_wordlist)
+            ans_list = parts[4].split(' || ')
+            for ans in ans_list:
+                ans_id = truncate_q_str.find(ans)
+                if ans_id < 0:
+                    # ground_truth_ans_outside+=1
+                    startlist.add(-1)
+                else:
+                    startlist.add(len(truncate_q_str[:ans_id].split()))
+            if len(startlist)==1 and list(startlist)[0]==-1:
+                ground_truth_ans_outside+=1
+        else:
+            startlist.add(-1)
+
+
+        questions.append(q_idlist)
+        paragraphs.append(p_idlist)
+        q_masks.append(q_mask)
+        p_masks.append(p_mask)
+
+        char_questions.append(q_char_idlist)
+        char_paragraphs.append(p_char_idlist)
+        char_q_masks.append(q_char_mask)
+        char_p_masks.append(p_char_mask)
+        q_ids.append(q_id)
+        labels.append(list(startlist))
+        line_co+=1
+    print 'load dev over, ', line_co, ' question-sent pairs, ground_truth_ans_outside: ', ground_truth_ans_outside, ' max_para_len:', max_para_len
+    return     questions,paragraphs,q_masks,p_masks,char_questions, char_paragraphs, char_q_masks,char_p_masks, labels, q_ids, word2id, char2id, para_wordlists
 
 if __name__ == '__main__':
 #     store_SQUAD_train()

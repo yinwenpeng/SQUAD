@@ -1,19 +1,36 @@
-
-
-def refine_text(sequence):
-    seq=sequence.replace('. ', ' . ')
-    if seq[-1]=='.':
-        seq=seq[:-1]+' .'
-    return seq
-
-
+import nltk
+# from nltk.tag import pos_tag
+# from nltk.tokenize import TreebankWordTokenizer
+# from nltk.tag.stanford import StanfordNERTagger
+# nltk.download('averaged_perceptron_tagger')
+# path='/mounts/data/proj/wenpeng/Dataset/SQuAD/'
+import re
+import random
 if __name__ == '__main__':
-    import operator
-    x = {1: 2, 3: 4, 4: 3, 2: 1, 0: 0}
-    sorted_x = sorted(x.items(), key=operator.itemgetter(1), reverse=True)
-    print sorted_x
-    for key, value in sorted_x:
-        print key, value
+    print random.sample(set(['What', 'Where', 'When', 'Who', 'Which', 'Whom', 'what', 'where', 'when', 'who', 'which', 'whom']), 1)
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

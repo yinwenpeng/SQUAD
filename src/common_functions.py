@@ -33,7 +33,7 @@ def create_AttentionMatrix_para(rng, n_in, n_out):
             high=numpy.sqrt(6. / (n_in + n_out)),
             size=(n_in, n_out)), dtype=theano.config.floatX)  # @UndefinedVariable
     W2 = theano.shared(value=W2_values, name='W2', borrow=True)
-    
+
 #     b_values = numpy.zeros((n_out,), dtype=theano.config.floatX)  # @UndefinedVariable
     w_values = numpy.asarray(rng.uniform(
             low=-numpy.sqrt(6. / (n_out+1)),
@@ -77,14 +77,14 @@ def create_Bi_GRU_para(rng, word_dim, hidden_dim):
 def tensor_svd_each_slice(tensor3):
     svd_slices=[]
     for i in range(len(tensor3)):
-        matrix_i=tensor3[i]        
+        matrix_i=tensor3[i]
         svd_slices.append(matrix_svd(matrix_i))
     return numpy.asarray(svd_slices)
 
 def matrix_svd(matrix):
     u_i, s_i, v_i = numpy.linalg.svd(matrix)
     return u_i
-    
+
 def create_GRU_para(rng, word_dim, hidden_dim):
         # Initialize the network parameters
         U = numpy.random.uniform(-0.01, 0.01, (3, hidden_dim, word_dim))
@@ -113,11 +113,11 @@ def create_LSTM_para(rng, word_dim, hidden_dim):
     return params
 def create_ensemble_para(rng, fan_in, fan_out):
 #         W=rng.normal(0.0, 0.01, (fan_out,fan_in))
-# 
+#
 #         W =theano.shared(name='W', value=W.astype(theano.config.floatX), borrow=True)
 
-        
-        
+
+
         # initialize weights with random weights
         W_bound = numpy.sqrt(6. /(fan_in + fan_out))
         W = theano.shared(numpy.asarray(
@@ -126,7 +126,7 @@ def create_ensemble_para(rng, fan_in, fan_out):
                                borrow=True)
 
         return W
-    
+
 def create_highw_para(rng, fan_in, fan_out):
 
         # initialize weights with random weights
@@ -170,7 +170,7 @@ def create_rnn_para(rng, dim):
         W = theano.shared(numpy.asarray(
             rng.uniform(low=-W_bound, high=W_bound, size=(2*dim, dim)),
             dtype=theano.config.floatX),
-                               borrow=True)        
+                               borrow=True)
         # the bias is a 1D tensor -- one bias per output feature map
         b_values = numpy.zeros((dim,), dtype=theano.config.floatX)
         b = theano.shared(value=b_values, borrow=True)
@@ -187,8 +187,8 @@ def Wide_Conv_Narrow(rng, input_tensor3, batch, emb, length, hidden, width, W_wi
     na_filter_shape=(hidden, 1, hidden, width)
     na_image_shape = (batch, 1, hidden, length+width-1)
     na_layer=Conv_with_input_para(rng, wide_output, na_filter_shape, na_image_shape, W_na, b_na)
-    na_output_tensor3=na_layer.narrow_conv_out_tensor3 #(batch, hidden, len)    
-    
+    na_output_tensor3=na_layer.narrow_conv_out_tensor3 #(batch, hidden, len)
+
     return na_output_tensor3
 
 class Wide_Conv_with_input_para(object):
@@ -205,7 +205,7 @@ class Wide_Conv_with_input_para(object):
         # convolve input feature maps with filters
         conv_out = conv.conv2d(input=input, filters=self.W,
                 filter_shape=filter_shape, image_shape=image_shape, border_mode='full')    #(batch, kernels, 2*hidden-1, len+filter_width-1)
-        
+
         # add the bias term. Since the bias is a vector (1D array), we first
         # reshape it to a tensor of shape (1,n_filters,1,1). Each bias will
         # thus be broadcasted across mini-batches and feature map
@@ -213,12 +213,41 @@ class Wide_Conv_with_input_para(object):
         conv_with_bias = T.tanh(conv_out + self.b.dimshuffle('x', 0, 'x', 'x'))
         extract_part=conv_with_bias[:,:,self.input_hidden-1:self.input_hidden,:] #(batch, kernels, 1, len+filter-width-1)
         wide_conv_out = extract_part.reshape((image_shape[0], 1, filter_shape[0], image_shape[3]+filter_shape[3]-1)) #(batch, 1, kernerl, ishape[1]-filter_size1[1]+1)
-        
+
         self.wide_conv_out_tensor4=wide_conv_out  #(batch, 1, kernels, len+width-1)
         self.wide_conv_out_tensor3=extract_part.reshape((image_shape[0], filter_shape[0], image_shape[3]+filter_shape[3]-1))#(batch,  kernels, len+width-1)
-    
-    
-    
+
+
+class Conv_with_Mask(object):
+    """we define CNN by input tensor3 and output tensor3, like RNN, filter width must by 3,5,7..."""
+
+    def __init__(self, rng, input_tensor3, mask_matrix, filter_shape, image_shape, W, b):
+        assert image_shape[1] == filter_shape[1]
+        zero_pad_tensor4_1 = T.zeros((input_tensor3.shape[0], 1, input_tensor3.shape[1], filter_shape[3]/2), dtype=theano.config.floatX)+1e-8  # to get rid of nan in CNN gradient
+        input = T.concatenate([zero_pad_tensor4_1,input_tensor3.dimshuffle(0,'x',1,2),
+                    zero_pad_tensor4_1], axis=3)        #(batch_size, 1, emb_size, maxsenlen+width-1)
+
+        self.input = input
+        self.W = W
+        self.b = b
+
+        pad_images_shape=(image_shape[0], image_shape[1], image_shape[2], image_shape[3]+filter_shape[3]-1)
+
+        # convolve input feature maps with filters
+        conv_out = conv.conv2d(input=input, filters=self.W,
+                filter_shape=filter_shape, image_shape=pad_images_shape, border_mode='valid')    #here, we should pad enough zero padding for input
+
+        conv_with_bias = T.tanh(conv_out + self.b.dimshuffle('x', 0, 'x', 'x'))
+        conv_output_tensor3=conv_with_bias.reshape((image_shape[0], filter_shape[0], image_shape[3])) #(batch, 1, kernerl, ishape[1]-filter_size1[1]+1)
+
+        self.masked_conv_out=conv_output_tensor3*mask_matrix.dimshuffle(0,'x',1) #(batch, hidden_size, len)
+
+        mask_for_conv_output=T.repeat(mask_matrix.dimshuffle(0,'x',1), filter_shape[0], axis=1) #(batch_size, emb_size, maxSentLen-filter_size+1)
+        mask_for_conv_output=(1.0-mask_for_conv_output)*(mask_for_conv_output-10)
+        masked_conv_output=self.masked_conv_out+mask_for_conv_output      #mutiple mask with the conv_out to set the features by UNK to zero
+        self.maxpool_vec=T.max(masked_conv_output, axis=2) #(batch_size, hidden_size) # each sentence then have an embedding of length hidden_size
+
+        self.params = [self.W, self.b]
 
 class Conv_with_input_para(object):
     """Pool Layer of a convolutional network """
@@ -231,22 +260,22 @@ class Conv_with_input_para(object):
 
         # convolve input feature maps with filters
         conv_out = conv.conv2d(input=input, filters=self.W,
-                filter_shape=filter_shape, image_shape=image_shape, border_mode='valid')    #here, we should pad enough zero padding for input 
-        
+                filter_shape=filter_shape, image_shape=image_shape, border_mode='valid')    #here, we should pad enough zero padding for input
+
         # add the bias term. Since the bias is a vector (1D array), we first
         # reshape it to a tensor of shape (1,n_filters,1,1). Each bias will
         # thus be broadcasted across mini-batches and feature map
         # width & height
         conv_with_bias = T.tanh(conv_out + self.b.dimshuffle('x', 0, 'x', 'x'))
         narrow_conv_out=conv_with_bias.reshape((image_shape[0], 1, filter_shape[0], image_shape[3]-filter_shape[3]+1)) #(batch, 1, kernerl, ishape[1]-filter_size1[1]+1)
-        
+
         self.narrow_conv_out=narrow_conv_out
         self.narrow_conv_out_tensor3=conv_with_bias.reshape((image_shape[0], filter_shape[0], image_shape[3]-filter_shape[3]+1))
-        
+
         #pad filter_size-1 zero embeddings at both sides
         left_padding = T.zeros((image_shape[0], 1, filter_shape[0], filter_shape[3]-1), dtype=theano.config.floatX)
         right_padding = T.zeros((image_shape[0], 1, filter_shape[0], filter_shape[3]-1), dtype=theano.config.floatX)
-        self.output = T.concatenate([left_padding, narrow_conv_out, right_padding], axis=3) 
+        self.output = T.concatenate([left_padding, narrow_conv_out, right_padding], axis=3)
         self.output_max_pooling_vec=T.max(narrow_conv_out.reshape((narrow_conv_out.shape[2], narrow_conv_out.shape[3])), axis=1)
 
         # store parameters of this layer
@@ -269,74 +298,74 @@ class RNN_with_input_para(object):
             h_t=h_tm1*w_t+x_t*(1-w_t)
 #             s_t = T.nnet.softmax(T.dot(h_t, self.w) + self.b)
             return h_t
-        
+
         h, _ = theano.scan(fn=recurrence,
                                 sequences=self.input,
                                 outputs_info=self.h0,#[self.h0, None],
-                                n_steps=self.input.shape[0])        
+                                n_steps=self.input.shape[0])
         self.output=h.reshape((self.input.shape[0], self.input.shape[1])).transpose(1,0)
-        
+
 
         # store parameters of this layer
         self.params = [self.Whh, self.Wxh, self.b]
-        
+
 def Matrix_Bit_Shift(input_matrix): # shit each column
     input_matrix=debug_print(input_matrix, 'input_matrix')
-    
+
     def shift_at_t(t):
         shifted_matrix=debug_print(T.concatenate([input_matrix[:,t:], input_matrix[:,:t]], axis=1), 'shifted_matrix')
         return shifted_matrix
-    
+
     tensor,_ = theano.scan(fn=shift_at_t,
                             sequences=T.arange(input_matrix.shape[1]),
-                            n_steps=input_matrix.shape[1])         
-    
+                            n_steps=input_matrix.shape[1])
+
     return tensor
 
 class Bi_GRU_Matrix_Input(object):
     def __init__(self, X, word_dim, hidden_dim, U, W, b, U_b, W_b, b_b, bptt_truncate):
         self.hidden_dim = hidden_dim
         self.bptt_truncate = bptt_truncate
-        
-        def forward_prop_step(x_t, s_t1_prev):            
+
+        def forward_prop_step(x_t, s_t1_prev):
             # GRU Layer 1
             z_t1 =T.nnet.sigmoid(U[0].dot(x_t) + W[0].dot(s_t1_prev) + b[0])
             r_t1 = T.nnet.sigmoid(U[1].dot(x_t) + W[1].dot(s_t1_prev) + b[1])
             c_t1 = T.tanh(U[2].dot(x_t) + W[2].dot(s_t1_prev * r_t1) + b[2])
             s_t1 = (T.ones_like(z_t1) - z_t1) * c_t1 + z_t1 * s_t1_prev
             return s_t1
-        
+
         s, updates = theano.scan(
             forward_prop_step,
             sequences=X.transpose(1,0),
             truncate_gradient=self.bptt_truncate,
             outputs_info=dict(initial=T.zeros(self.hidden_dim)))
-        
+
 #         self.output_matrix=debug_print(s.transpose(), 'GRU_Matrix_Input.output_matrix')
 #         self.output_vector_mean=T.mean(self.output_matrix, axis=1)
 #         self.output_vector_max=T.max(self.output_matrix, axis=1)
 #         self.output_vector_last=self.output_matrix[:,-1]
         #backward
         X_b=X[:,::-1]
-        def backward_prop_step(x_t_b, s_t1_prev_b):            
+        def backward_prop_step(x_t_b, s_t1_prev_b):
             # GRU Layer 1
             z_t1_b =T.nnet.sigmoid(U_b[0].dot(x_t_b) + W_b[0].dot(s_t1_prev_b) + b_b[0])
             r_t1_b = T.nnet.sigmoid(U_b[1].dot(x_t_b) + W_b[1].dot(s_t1_prev_b) + b_b[1])
             c_t1_b = T.tanh(U_b[2].dot(x_t_b) + W_b[2].dot(s_t1_prev_b * r_t1_b) + b_b[2])
             s_t1_b = (T.ones_like(z_t1_b) - z_t1_b) * c_t1_b + z_t1_b * s_t1_prev_b
             return s_t1_b
-        
+
         s_b, updates_b = theano.scan(
             backward_prop_step,
             sequences=X_b.transpose(1,0),
             truncate_gradient=self.bptt_truncate,
             outputs_info=dict(initial=T.zeros(self.hidden_dim)))
-        #dim: hidden_dim*2        
+        #dim: hidden_dim*2
 #         output_matrix=T.concatenate([s.transpose(), s_b.transpose()[:,::-1]], axis=0)
         output_matrix=s.transpose()+s_b.transpose()[:,::-1]
         self.output_matrix=output_matrix+X # add input feature maps
-        
-        
+
+
         self.output_vector_mean=T.mean(self.output_matrix, axis=1)
         self.output_vector_max=T.max(self.output_matrix, axis=1)
         #dim: hidden_dim*4
@@ -355,26 +384,26 @@ class Bi_GRU_Tensor3_Input(object):
                                      sequences=[T, lefts, rights],
                                      outputs_info=None)
         self.output=debug_print(new_M.transpose(), 'Bi_GRU_Tensor3_Input.output')
-        
+
 class GRU_Matrix_Input(object):
     def __init__(self, X, word_dim, hidden_dim, U, W, b, bptt_truncate):
         self.hidden_dim = hidden_dim
         self.bptt_truncate = bptt_truncate
-        
-        def forward_prop_step(x_t, s_t1_prev):            
+
+        def forward_prop_step(x_t, s_t1_prev):
             # GRU Layer 1
             z_t1 =debug_print( T.nnet.sigmoid(U[0].dot(x_t) + W[0].dot(s_t1_prev) + b[0]), 'z_t1')
             r_t1 = debug_print(T.nnet.sigmoid(U[1].dot(x_t) + W[1].dot(s_t1_prev) + b[1]), 'r_t1')
             c_t1 = debug_print(T.tanh(U[2].dot(x_t) + W[2].dot(s_t1_prev * r_t1) + b[2]), 'c_t1')
             s_t1 = debug_print((T.ones_like(z_t1) - z_t1) * c_t1 + z_t1 * s_t1_prev, 's_t1')
             return s_t1
-        
+
         s, updates = theano.scan(
             forward_prop_step,
             sequences=X.transpose(1,0),
             truncate_gradient=self.bptt_truncate,
             outputs_info=dict(initial=T.zeros(self.hidden_dim)))
-        
+
         self.output_matrix=debug_print(s.transpose(), 'GRU_Matrix_Input.output_matrix')
         self.output_vector_mean=T.mean(self.output_matrix, axis=1)
         self.output_vector_max=T.max(self.output_matrix, axis=1)
@@ -400,7 +429,7 @@ def create_params_WbWAE(input_dim, output_dim):
 
     W = theano.shared(name='W', value=W.astype(theano.config.floatX))
     w = theano.shared(name='w', value=w.astype(theano.config.floatX))
-    
+
     return W, w
 
 class Word_by_Word_Attention_EntailmentPaper(object):
@@ -416,14 +445,14 @@ class Word_by_Word_Attention_EntailmentPaper(object):
 
             r_t=T.sum(M_t, axis=1)
             return r_t
-        
+
         r, updates= theano.scan(loop,
                                 sequences=self.H.transpose(),
                                 outputs_info=self.r0
                                 )
-        
+
         H_star=T.tanh(W_p.dot(r[-1]+W_x.dot(self.H[:,-1])))
-        self.output=H_star    
+        self.output=H_star
 class Bd_GRU_Batch_Tensor_Input_with_Mask_with_MatrixInit(object):
     # Bidirectional GRU Layer.
     def __init__(self, X, Mask, MatrixInit, hidden_dim, U, W, b, Ub, Wb, bb):
@@ -434,7 +463,7 @@ class Bd_GRU_Batch_Tensor_Input_with_Mask_with_MatrixInit(object):
         #for word level rep
         output_tensor=fwd.output_tensor+bwd.output_tensor[:,:,::-1]
         self.output_tensor=output_tensor+X[:,:output_tensor.shape[1],:] # add initialized emb
-        
+
         #for final sentence rep
 #         sent_output_tensor=fwd.output_tensor+bwd.output_tensor
 #         self.output_tensor=output_tensor+X # add initialized emb
@@ -450,25 +479,25 @@ class GRU_Batch_Tensor_Input_with_Mask_with_MatrixInit(object):
         self.hidden_dim = hidden_dim
 #         self.bptt_truncate = bptt_truncate
         self.M=Mask.T
-        
+
         new_tensor=X.dimshuffle(2,1,0)
-        
-        def forward_prop_step(x_t, mask, s_t1_prev):            
+
+        def forward_prop_step(x_t, mask, s_t1_prev):
             # GRU Layer 1
             z_t1 =T.nnet.sigmoid(U[0].dot(x_t) + W[0].dot(s_t1_prev) + T.repeat(b[0].reshape((hidden_dim,1)), X.shape[0], axis=1)) #maybe here has a bug, as b is vector while dot product is matrix
             r_t1 = T.nnet.sigmoid(U[1].dot(x_t) + W[1].dot(s_t1_prev) + T.repeat(b[1].reshape((hidden_dim,1)), X.shape[0], axis=1))
             c_t1 = T.tanh(U[2].dot(x_t) + W[2].dot(s_t1_prev * r_t1) + T.repeat(b[2].reshape((hidden_dim,1)), X.shape[0], axis=1))
             s_t1 = (T.ones_like(z_t1) - z_t1) * c_t1 + z_t1 * s_t1_prev
-            
+
             s_t1_m=s_t1*mask[None,:]+(1.0-mask[None,:])*s_t1_prev
-            
+
             return s_t1_m
-        
+
         s, updates = theano.scan(
             forward_prop_step,
             sequences=[new_tensor, self.M],
             outputs_info=MatrixInit.T)
-        
+
 #         self.output_matrix=debug_print(s.transpose(), 'GRU_Matrix_Input.output_matrix')
         self.output_tensor=s.dimshuffle(2,1,0)  #(batch, emb_size, sentlength) again
 
@@ -483,7 +512,7 @@ class Bd_GRU_Batch_Tensor_Input_with_Mask(object):
         #for word level rep
         output_tensor=fwd.output_tensor+bwd.output_tensor[:,:,::-1]
         self.output_tensor=output_tensor#+X[:,:output_tensor.shape[1],:] # add initialized emb
-        
+
         #for final sentence rep
 #         sent_output_tensor=fwd.output_tensor+bwd.output_tensor
 #         self.output_tensor=output_tensor+X # add initialized emb
@@ -498,7 +527,7 @@ class Bd_GRU_Batch_Tensor_Input_with_Mask_Concate(object):
         bwd = GRU_Batch_Tensor_Input_with_Mask(X[:,:,::-1], Mask[:,::-1], hidden_dim, Ub, Wb, bb)
 
         output_tensor=T.concatenate([fwd.output_tensor, bwd.output_tensor[:,:,::-1]], axis=1) #(batch, 2*hidden, len)
-        self.output_tensor=output_tensor  ##(batch, 2*hidden, len)        
+        self.output_tensor=output_tensor  ##(batch, 2*hidden, len)
         #for final sentence rep
         self.output_sent_rep_maxpooling=T.concatenate([fwd.output_tensor[:,:,-1], bwd.output_tensor[:,:,0]], axis=1) #(batch, 2*hidden)
 class GRU_Batch_Tensor_Input_with_Mask(object):
@@ -508,25 +537,25 @@ class GRU_Batch_Tensor_Input_with_Mask(object):
         self.hidden_dim = hidden_dim
 #         self.bptt_truncate = bptt_truncate
         self.M=Mask.T
-        
+
         new_tensor=X.dimshuffle(2,1,0)
-        
-        def forward_prop_step(x_t, mask, s_t1_prev):            
+
+        def forward_prop_step(x_t, mask, s_t1_prev):
             # GRU Layer 1
             z_t1 =T.nnet.sigmoid(U[0].dot(x_t) + W[0].dot(s_t1_prev) + T.repeat(b[0].reshape((hidden_dim,1)), X.shape[0], axis=1)) #maybe here has a bug, as b is vector while dot product is matrix
             r_t1 = T.nnet.sigmoid(U[1].dot(x_t) + W[1].dot(s_t1_prev) + T.repeat(b[1].reshape((hidden_dim,1)), X.shape[0], axis=1))
             c_t1 = T.tanh(U[2].dot(x_t) + W[2].dot(s_t1_prev * r_t1) + T.repeat(b[2].reshape((hidden_dim,1)), X.shape[0], axis=1))
             s_t1 = (T.ones_like(z_t1) - z_t1) * c_t1 + z_t1 * s_t1_prev
-            
+
             s_t1_m=s_t1*mask[None,:]+(1.0-mask[None,:])*s_t1_prev
-            
+
             return s_t1_m
-        
+
         s, updates = theano.scan(
             forward_prop_step,
             sequences=[new_tensor, self.M],
             outputs_info=dict(initial=T.zeros((self.hidden_dim, X.shape[0]))))
-        
+
 #         self.output_matrix=debug_print(s.transpose(), 'GRU_Matrix_Input.output_matrix')
         self.output_tensor=s.dimshuffle(2,1,0)  #(batch, emb_size, sentlength) again
 
@@ -534,21 +563,12 @@ class GRU_Batch_Tensor_Input_with_Mask(object):
 
 class Bd_LSTM_Batch_Tensor_Input_with_Mask(object):
     # Bidirectional GRU Layer.
-    def __init__(self, X, Mask, hidden_dim, fwd_tparams, bwd_tparams):
-        fwd = LSTM_Batch_Tensor_Input_with_Mask(X, Mask, hidden_dim, fwd_tparams)
-        bwd = LSTM_Batch_Tensor_Input_with_Mask(X[:,:,::-1], Mask[:,::-1], hidden_dim, bwd_tparams)
+    def __init__(self, X, Mask, hidden_dim, fwd_params, bwd_params):
+        fwd = LSTM_Batch_Tensor_Input_with_Mask(X, Mask, hidden_dim, fwd_params)
+        bwd = LSTM_Batch_Tensor_Input_with_Mask(X[:,:,::-1], Mask[:,::-1], hidden_dim, bwd_params)
 
-        output_tensor=T.concatenate([fwd.output_tensor, bwd.output_tensor[:,:,::-1]], axis=1)
-        #for word level rep
-#         output_tensor=fwd.output_tensor+bwd.output_tensor[:,:,::-1]
-        self.output_tensor_conc=output_tensor#+X[:,:output_tensor.shape[1],:] # add initialized emb
-        
-        #for final sentence rep
-#         sent_output_tensor=fwd.output_tensor+bwd.output_tensor
-#         self.output_tensor=output_tensor+X # add initialized emb
-#         self.output_sent_rep=self.output_tensor[:,:,-1]
-        self.output_sent_rep_maxpooling=fwd.output_tensor[:,:,-1]+bwd.output_tensor[:,:,-1]
-#         self.output_sent_rep_maxpooling=T.concatenate([fwd.output_tensor[:,:,-1], bwd.output_tensor[:,:,-1]], axis=1)
+        self.output_tensor_conc=T.concatenate([fwd.output_tensor, bwd.output_tensor[:,:,::-1]], axis=1) #(batch, 2*hidden, len)
+        self.output_sent_rep_conc=T.concatenate([fwd.output_sent_rep, bwd.output_sent_rep], axis=1) #(batch, 2*hidden)
 
 class Bd_LSTM_Batch_Tensor_Input_with_Mask_Concate(object):
     # Bidirectional GRU Layer.
@@ -559,7 +579,7 @@ class Bd_LSTM_Batch_Tensor_Input_with_Mask_Concate(object):
         output_tensor=T.concatenate([fwd.output_tensor, bwd.output_tensor[:,:,::-1]], axis=1)
         #for word level rep
 #         output_tensor=fwd.output_tensor+bwd.output_tensor[:,:,::-1]
-        self.output_tensor=output_tensor#(batch, 2*hidden ,len)       
+        self.output_tensor=output_tensor#(batch, 2*hidden ,len)
         self.forward_output=fwd.output_tensor
         self.backward_output = bwd.output_tensor[:,:,::-1]
         #for final sentence rep
@@ -577,14 +597,14 @@ class LSTM_Batch_Tensor_Input_with_Mask(object):
             n_samples = state_below.shape[1] #batch_size
         else:
             n_samples = 1
-    
+
         assert mask is not None
-    
+
         def _slice(_x, n, dim):
             if _x.ndim == 3:
                 return _x[:, :, n * dim:(n + 1) * dim]
             return _x[:, n * dim:(n + 1) * dim]
-    
+
         def _step(m_, x_, h_, c_): #mask, x_ current word embedding, h_ and c_ are hidden states in preceding step of two hidden layers
             preact = T.dot(h_, tparams['U'])
             preact += x_
@@ -596,23 +616,23 @@ class LSTM_Batch_Tensor_Input_with_Mask(object):
             f = T.nnet.sigmoid(_slice(preact, 1, hidden_size))
             o = T.nnet.sigmoid(_slice(preact, 2, hidden_size))
             c = T.tanh(_slice(preact, 3, hidden_size))
-    
+
             c = f * c_ + i * c
             c = m_[:, None] * c + (1. - m_)[:, None] * c_
-    
+
             h = o * T.tanh(c)
             h = m_[:, None] * h + (1. - m_)[:, None] * h_
-    
+
             return h, c
-    
+
         state_below = (T.dot(state_below, tparams['W']) + tparams['b'])
-    
+
         dim_proj = hidden_size
-        
+
         '''
         pls understand this theano.scan by referring to the description of GRU's theano.scan
         '''
-        
+
         rval, updates = theano.scan(_step,
                                     sequences=[mask, state_below],
                                     outputs_info=[T.alloc(numpy.asarray(0., dtype=theano.config.floatX),n_samples,dim_proj),
@@ -628,42 +648,42 @@ class GRU_Batch_Tensor_Input(object):
         #now, X is (batch, emb_size, sentlength)
         self.hidden_dim = hidden_dim
         self.bptt_truncate = bptt_truncate
-        
+
         new_tensor=debug_print(X.dimshuffle(2,1,0), 'new_tensor')
-        
-        def forward_prop_step(x_t, s_t1_prev):            
+
+        def forward_prop_step(x_t, s_t1_prev):
             # GRU Layer 1
             z_t1 =debug_print( T.nnet.sigmoid(U[0].dot(x_t) + W[0].dot(s_t1_prev) + T.repeat(b[0].reshape((hidden_dim,1)), X.shape[0], axis=1)), 'z_t1')  #maybe here has a bug, as b is vector while dot product is matrix
             r_t1 = debug_print(T.nnet.sigmoid(U[1].dot(x_t) + W[1].dot(s_t1_prev) + T.repeat(b[1].reshape((hidden_dim,1)), X.shape[0], axis=1)), 'r_t1')
             c_t1 = debug_print(T.tanh(U[2].dot(x_t) + W[2].dot(s_t1_prev * r_t1) + T.repeat(b[2].reshape((hidden_dim,1)), X.shape[0], axis=1)), 'c_t1')
             s_t1 = debug_print((T.ones_like(z_t1) - z_t1) * c_t1 + z_t1 * s_t1_prev, 's_t1')
             return s_t1
-        
+
         s, updates = theano.scan(
             forward_prop_step,
             sequences=new_tensor,
             truncate_gradient=self.bptt_truncate,
             outputs_info=dict(initial=T.zeros((self.hidden_dim, X.shape[0]))))
-        
+
 #         self.output_matrix=debug_print(s.transpose(), 'GRU_Matrix_Input.output_matrix')
         self.output_tensor=debug_print(s.dimshuffle(2,1,0), 'self.output_tensor')
-        
+
 #         d0s, d2s=Dim_Align(self.output_tensor.shape[0])
 #         d0s=debug_print(d0s, 'd0s')
 #         d2s=debug_print(d2s, 'd2s')
 #         self.output_matrix=debug_print(self.output_tensor[d0s,:,d2s].transpose(), 'self.output_matrix')  # before transpose, its (dim, hidden_size), each row is a hidden state
-        
+
         d0s=Dim_Align_new(self.output_tensor.shape[0])
         self.output_matrix=self.output_tensor.transpose(0,2,1).reshape((self.output_tensor.shape[0]*self.output_tensor.shape[2], self.output_tensor.shape[1]))[d0s].transpose()
         self.dim=debug_print(self.output_tensor.shape[0]*(self.output_tensor.shape[0]+1)/2, 'self.dim')
         self.output_sent_rep=self.output_tensor[0,:,-1]
         self.output_sent_hiddenstates=self.output_tensor[0]
         self.ph_lengths=lenghs_phrases(self.output_tensor.shape[0])
-        
-        
 
 
-        
+
+
+
 def Dim_Align(x):
 #     x = tt.lscalar()
     def series_sum(n):
@@ -682,9 +702,9 @@ def Dim_Align(x):
 
     (r1, r2), _ = theano.scan(step, sequences=[T.arange(x)], outputs_info=[yz, yz])
 #     return theano.function([x], [y1[-1], y2[-1]])
-    return r1[-1], r2[-1]    
-    
-def Dim_Align_new(x): 
+    return r1[-1], r2[-1]
+
+def Dim_Align_new(x):
     #there is a bug, when input x=1, namely the sentence has only one word
 #     x = tt.lscalar()
     def series_sum(n):
@@ -702,7 +722,7 @@ def Dim_Align_new(x):
 
     r1, _ = theano.scan(step, sequences=[T.arange(x)], outputs_info=yz)
 #     return theano.function([x], [y1[-1], y2[-1]])
-    return r1[-1] 
+    return r1[-1]
 
 def lenghs_phrases(x):
 #     x = tt.lscalar()
@@ -721,7 +741,7 @@ def lenghs_phrases(x):
 
     r1, _ = theano.scan(step, sequences=[T.arange(x)], outputs_info=yz) #[0,1,2,3]
 #     return theano.function([x], [y1[-1], y2[-1]])
-    return r1[-1] 
+    return r1[-1]
 class biRNN_with_input_para(object):
     """Pool Layer of a convolutional network """
 
@@ -746,11 +766,11 @@ class biRNN_with_input_para(object):
             h_t=h_tm1*w_t+x_t*(1-w_t)
 #             s_t = T.nnet.softmax(T.dot(h_t, self.w) + self.b)
             return h_t
-         
+
         h, _ = theano.scan(fn=recurrence,
                                 sequences=self.input,
                                 outputs_info=self.h0,#[self.h0, None],
-                                n_steps=self.input.shape[0])        
+                                n_steps=self.input.shape[0])
         self.output_one=debug_print(h.reshape((self.input.shape[0], self.input.shape[1])).transpose(1,0), 'self.output_one')
         #reverse direction
         self.input_two=debug_print(input[:,::-1].transpose(1,0), 'self.input_two')
@@ -761,17 +781,17 @@ class biRNN_with_input_para(object):
             w_t = T.nnet.sigmoid(T.dot(concate, self.Wr) + self.b_r)
 #             h_t=h_tm1*w_t+x_t*(1-w_t)
 # #             s_t = T.nnet.softmax(T.dot(h_t, self.w) + self.b)
-# 
-# 
+#
+#
 #             w_t = T.nnet.sigmoid(T.dot(x_t_r, self.Wxh_r)
 #                                  + T.dot(h_tm1_r, self.Whh_r) + self.b_r)
             h_t=h_tm1_r*w_t+x_t_r*(1-w_t)
 #             s_t = T.nnet.softmax(T.dot(h_t, self.w) + self.b)
-            return h_t        
+            return h_t
         h_r, _ = theano.scan(fn=recurrence_r,
                                 sequences=self.input_two,
                                 outputs_info=self.h0_r,#[self.h0, None],
-                                n_steps=self.input_two.shape[0])        
+                                n_steps=self.input_two.shape[0])
         self.output_two=debug_print(h_r.reshape((self.input_two.shape[0], self.input_two.shape[1])).transpose(1,0)[:,::-1], 'self.output_two')
         self.output=debug_print(self.output_one+self.output_two, 'self.output')
 #         # store parameters of this layer
@@ -784,12 +804,12 @@ class Conv_with_input_para_one_col_featuremap(object):
         self.input = input
         self.W = W
         self.b = b
-        
+
         input=debug_print(input, 'input_Conv_with_input_para_one_col_featuremap')
         # convolve input feature maps with filters
         conv_out = conv.conv2d(input=input, filters=self.W,
-                filter_shape=filter_shape, image_shape=image_shape, border_mode='full')    #here, we should pad enough zero padding for input 
-        
+                filter_shape=filter_shape, image_shape=image_shape, border_mode='full')    #here, we should pad enough zero padding for input
+
         # add the bias term. Since the bias is a vector (1D array), we first
         # reshape it to a tensor of shape (1,n_filters,1,1). Each bias will
         # thus be broadcasted across mini-batches and feature map
@@ -799,17 +819,17 @@ class Conv_with_input_para_one_col_featuremap(object):
         posi=conv_with_bias.shape[2]/2
         conv_with_bias=conv_with_bias[:,:,posi:(posi+1),:]
         wide_conv_out=debug_print(conv_with_bias.reshape((image_shape[0], 1, filter_shape[0], image_shape[3]+filter_shape[3]-1)), 'wide_conv_out') #(batch, 1, kernerl, ishape[1]+filter_size1[1]-1)
-        
+
 
         self.output_tensor = debug_print(wide_conv_out, 'self.output_tensor')
         self.output_matrix=debug_print(wide_conv_out.reshape((filter_shape[0], image_shape[3]+filter_shape[3]-1)), 'self.output_matrix')
         self.output_sent_rep_Dlevel=debug_print(T.max(self.output_matrix, axis=1), 'self.output_sent_rep_Dlevel')
-        
+
 
         # store parameters of this layer
         self.params = [self.W, self.b]
-        
-        
+
+
 class Conv(object):
     """Pool Layer of a convolutional network """
 
@@ -853,20 +873,20 @@ class Conv(object):
 
         # convolve input feature maps with filters
         conv_out = conv.conv2d(input=input, filters=self.W,
-                filter_shape=filter_shape, image_shape=image_shape, border_mode='valid')    #here, we should pad enough zero padding for input 
-        
+                filter_shape=filter_shape, image_shape=image_shape, border_mode='valid')    #here, we should pad enough zero padding for input
+
         # add the bias term. Since the bias is a vector (1D array), we first
         # reshape it to a tensor of shape (1,n_filters,1,1). Each bias will
         # thus be broadcasted across mini-batches and feature map
         # width & height
         conv_with_bias = T.tanh(conv_out + self.b.dimshuffle('x', 0, 'x', 'x'))
         narrow_conv_out=conv_with_bias.reshape((image_shape[0], 1, filter_shape[0], image_shape[3]-filter_shape[3]+1)) #(batch, 1, kernerl, ishape[1]-filter_size1[1]+1)
-        
+
         #pad filter_size-1 zero embeddings at both sides
         left_padding = 1e-20+T.zeros((image_shape[0], 1, filter_shape[0], filter_shape[3]-1), dtype=theano.config.floatX)
         right_padding = 1e-20+T.zeros((image_shape[0], 1, filter_shape[0], filter_shape[3]-1), dtype=theano.config.floatX)
-        self.output = T.concatenate([left_padding, narrow_conv_out, right_padding], axis=3) 
-        
+        self.output = T.concatenate([left_padding, narrow_conv_out, right_padding], axis=3)
+
 
         # store parameters of this layer
         self.params = [self.W, self.b]
@@ -876,7 +896,7 @@ class Average_Pooling_for_Top(object):
 
     def __init__(self, rng, input_l, input_r, kern, left_l, right_l, left_r, right_r, length_l, length_r, dim, topk): # length_l, length_r: valid lengths after conv
 #     layer3_DQ=Average_Pooling_for_Top(rng, input_l=layer2_DQ.output, input_r=layer2_Q.output_sent_rep_Dlevel, kern=nkerns[1],
-#                      left_l=left_D, right_l=right_D, left_r=0, right_r=0, 
+#                      left_l=left_D, right_l=right_D, left_r=0, right_r=0,
 #                       length_l=len_D+filter_sents[1]-1, length_r=1,
 #                        dim=maxDocLength+filter_sents[1]-1, topk=3)
 
@@ -892,38 +912,38 @@ class Average_Pooling_for_Top(object):
             rng.uniform(low=-W_bound, high=W_bound, size=(kern, kern)),
             dtype=theano.config.floatX),
                                borrow=True) #a weight matrix kern*kern
-        
+
         input_r_matrix=debug_print(input_r,'input_r_matrix')
 
         input_l_matrix=debug_print(input_l.reshape((input_l.shape[2], input_l.shape[3])), 'origin_input_l_matrix')
         input_l_matrix=debug_print(input_l_matrix[:, left_l:(input_l_matrix.shape[1]-right_l)],'input_l_matrix')
 
-            
-            
+
+
         simi_matrix=compute_simi_feature_matrix_with_column(input_l_matrix, input_r_matrix, length_l, 1, dim) #(input.shape[0]/2, input.shape[1], input.shape[3], input.shape[3])
         simi_question=debug_print(simi_matrix.reshape((1, length_l)),'simi_question')
-        
+
         neighborsArgSorted = T.argsort(simi_question, axis=1)
         kNeighborsArg = neighborsArgSorted[:,-topk:]#only average the top 3 vectors
         kNeighborsArgSorted = T.sort(kNeighborsArg, axis=1) # make y indices in acending lie
         jj = kNeighborsArgSorted.flatten()
         sub_matrix=input_l_matrix.transpose(1,0)[jj].reshape((topk, input_l_matrix.shape[0]))
         sub_weights=simi_question.transpose(1,0)[jj].reshape((topk, 1))
-        
+
         sub_weights =sub_weights/T.sum(sub_weights) #L-1 normalize attentions
-        #weights_answer=simi_answer/T.sum(simi_answer)    
+        #weights_answer=simi_answer/T.sum(simi_answer)
         #concate=T.concatenate([weights_question, weights_answer], axis=1)
         #reshaped_concate=concate.reshape((input.shape[0], 1, 1, length_last_dim))
-        
+
         sub_weights=T.repeat(sub_weights, kern, axis=1)
         #weights_answer_matrix=T.repeat(weights_answer, kern, axis=0)
-        
+
         #with attention
-#         output_D_doc_level_rep=debug_print(T.sum(sub_matrix*sub_weights, axis=0), 'output_D_doc_level_rep') # is a column now    
-        output_D_doc_level_rep=debug_print(T.max(sub_matrix, axis=0), 'output_D_doc_level_rep') # is a column now 
-        self.output_D_doc_level_rep=output_D_doc_level_rep    
-        
-        
+#         output_D_doc_level_rep=debug_print(T.sum(sub_matrix*sub_weights, axis=0), 'output_D_doc_level_rep') # is a column now
+        output_D_doc_level_rep=debug_print(T.max(sub_matrix, axis=0), 'output_D_doc_level_rep') # is a column now
+        self.output_D_doc_level_rep=output_D_doc_level_rep
+
+
 
         self.params = [self.W]
 
@@ -935,7 +955,7 @@ class Average_Pooling(object):
     def __init__(self, rng, input_D, input_r, kern, left_D, right_D,left_D_s, right_D_s, left_r, right_r, length_D_s, length_r, dim, doc_len, topk): # length_l, length_r: valid lengths after conv
 #     layer1_DQ=Average_Pooling(rng, input_l=layer0_D_output, input_r=layer0_Q_output, kern=nkerns[0],
 #                                       left_D=left_D, right_D=right_D,
-#                      left_l=left_D_s, right_l=right_D_s, left_r=left_Q, right_r=right_Q, 
+#                      left_l=left_D_s, right_l=right_D_s, left_r=left_Q, right_r=right_Q,
 #                       length_l=len_D_s+filter_words[1]-1, length_r=len_Q+filter_words[1]-1,
 #                        dim=maxSentLength+filter_words[1]-1, doc_len=maxDocLength, topk=3)
 
@@ -959,82 +979,82 @@ class Average_Pooling(object):
             left_l=left_D_s[i]
             right_l=right_D_s[i]
             length_l=length_D_s[i]
-            
-            
+
+
             input_l_matrix=debug_print(input_l.reshape((input_D.shape[2], input_D.shape[3])), 'origin_input_l_matrix')
             input_l_matrix=debug_print(input_l_matrix[:, left_l:(input_l_matrix.shape[1]-right_l)],'input_l_matrix')
 
-            
-            
+
+
             simi_tensor=compute_simi_feature_batch1_new(input_l_matrix, input_r_matrix, length_l, length_r, self.W, dim) #(input.shape[0]/2, input.shape[1], input.shape[3], input.shape[3])
             simi_question=debug_print(T.max(simi_tensor, axis=1).reshape((1, length_l)),'simi_question')
-            
+
             neighborsArgSorted = T.argsort(simi_question, axis=1)
             kNeighborsArg = neighborsArgSorted[:,-topk:]#only average the top 3 vectors
             kNeighborsArgSorted = T.sort(kNeighborsArg, axis=1) # make y indices in acending lie
             jj = kNeighborsArgSorted.flatten()
             sub_matrix=input_l_matrix.transpose(1,0)[jj].reshape((topk, input_l_matrix.shape[0]))
             sub_weights=simi_question.transpose(1,0)[jj].reshape((topk, 1))
-            
+
             sub_weights =sub_weights/T.sum(sub_weights) #L-1 normalize attentions
-            #weights_answer=simi_answer/T.sum(simi_answer)    
+            #weights_answer=simi_answer/T.sum(simi_answer)
             #concate=T.concatenate([weights_question, weights_answer], axis=1)
             #reshaped_concate=concate.reshape((input.shape[0], 1, 1, length_last_dim))
-            
+
             sub_weights=T.repeat(sub_weights, kern, axis=1)
             #weights_answer_matrix=T.repeat(weights_answer, kern, axis=0)
-            
+
             #with attention
             dot_l=debug_print(T.sum(sub_matrix*sub_weights, axis=0).transpose(1,0), 'dot_l') # is a column now
             valid_D_s.append(dot_l)
-            #dot_r=debug_print(T.sum(input_r_matrix*weights_answer_matrix, axis=1),'dot_r')      
+            #dot_r=debug_print(T.sum(input_r_matrix*weights_answer_matrix, axis=1),'dot_r')
             '''
             #without attention
             dot_l=debug_print(T.sum(input_l_matrix, axis=1), 'dot_l') # first add 1e-20 for each element to make non-zero input for weight gradient
-            dot_r=debug_print(T.sum(input_r_matrix, axis=1),'dot_r')      
+            dot_r=debug_print(T.sum(input_r_matrix, axis=1),'dot_r')
             '''
             '''
             #with attention, then max pooling
             dot_l=debug_print(T.max(input_l_matrix*weights_question_matrix, axis=1), 'dot_l') # first add 1e-20 for each element to make non-zero input for weight gradient
-            dot_r=debug_print(T.max(input_r_matrix*weights_answer_matrix, axis=1),'dot_r')          
+            dot_r=debug_print(T.max(input_r_matrix*weights_answer_matrix, axis=1),'dot_r')
             '''
             #norm_l=debug_print(T.sqrt((dot_l**2).sum()),'norm_l')
             #norm_r=debug_print(T.sqrt((dot_r**2).sum()), 'norm_r')
-            
+
             #self.output_vector_l=debug_print((dot_l/norm_l).reshape((1, kern)),'output_vector_l')
-            #self.output_vector_r=debug_print((dot_r/norm_r).reshape((1, kern)), 'output_vector_r')      
+            #self.output_vector_r=debug_print((dot_r/norm_r).reshape((1, kern)), 'output_vector_r')
         valid_matrix=T.concatenate(valid_D_s, axis=1)
         left_padding = T.zeros((input_l_matrix.shape[0], left_D), dtype=theano.config.floatX)
         right_padding = T.zeros((input_l_matrix.shape[0], right_D), dtype=theano.config.floatX)
-        matrix_padded = T.concatenate([left_padding, valid_matrix, right_padding], axis=1)         
+        matrix_padded = T.concatenate([left_padding, valid_matrix, right_padding], axis=1)
         self.output_D=matrix_padded
         self.output_D_valid_part=valid_matrix
         self.output_QA_sent_level_rep=T.mean(input_r_matrix, axis=1)
-        
+
         #now, average pooling by comparing self.output_QA and self.output_D_valid_part
         simi_matrix=compute_simi_feature_matrix_with_column(self.output_D_valid_part, self.output_QA, doc_len-left_D-right_D, 1, doc_len) #(input.shape[0]/2, input.shape[1], input.shape[3], input.shape[3])
         simi_question=debug_print(simi_matrix.reshape((1, doc_len-left_D-right_D)),'simi_question')
-        
+
         neighborsArgSorted = T.argsort(simi_question, axis=1)
         kNeighborsArg = neighborsArgSorted[:,-topk:]#only average the top 3 vectors
         kNeighborsArgSorted = T.sort(kNeighborsArg, axis=1) # make y indices in acending lie
         jj = kNeighborsArgSorted.flatten()
         sub_matrix=self.output_D_valid_part.transpose(1,0)[jj].reshape((topk, self.output_D_valid_part.shape[0]))
         sub_weights=simi_question.transpose(1,0)[jj].reshape((topk, 1))
-        
+
         sub_weights =sub_weights/T.sum(sub_weights) #L-1 normalize attentions
-        #weights_answer=simi_answer/T.sum(simi_answer)    
+        #weights_answer=simi_answer/T.sum(simi_answer)
         #concate=T.concatenate([weights_question, weights_answer], axis=1)
         #reshaped_concate=concate.reshape((input.shape[0], 1, 1, length_last_dim))
-        
+
         sub_weights=T.repeat(sub_weights, kern, axis=1)
         #weights_answer_matrix=T.repeat(weights_answer, kern, axis=0)
-        
+
         #with attention
-        output_D_sent_level_rep=debug_print(T.sum(sub_matrix*sub_weights, axis=0).transpose(1,0), 'output_D_sent_level_rep') # is a column now    
-        self.output_D_sent_level_rep=output_D_sent_level_rep    
-        
-        
+        output_D_sent_level_rep=debug_print(T.sum(sub_matrix*sub_weights, axis=0).transpose(1,0), 'output_D_sent_level_rep') # is a column now
+        self.output_D_sent_level_rep=output_D_sent_level_rep
+
+
 
         self.params = [self.W]
 
@@ -1044,7 +1064,7 @@ class Average_Pooling_Scan(object):
     def __init__(self, rng, input_D, input_r, kern, left_D, right_D,left_D_s, right_D_s, left_r, right_r, length_D_s, length_r, dim, doc_len, topk): # length_l, length_r: valid lengths after conv
 #     layer1_DQ=Average_Pooling(rng, input_l=layer0_D_output, input_r=layer0_Q_output, kern=nkerns[0],
 #                                       left_D=left_D, right_D=right_D,
-#                      left_l=left_D_s, right_l=right_D_s, left_r=left_Q, right_r=right_Q, 
+#                      left_l=left_D_s, right_l=right_D_s, left_r=left_Q, right_r=right_Q,
 #                       length_l=len_D_s+filter_words[1]-1, length_r=len_Q+filter_words[1]-1,
 #                        dim=maxSentLength+filter_words[1]-1, doc_len=maxDocLength, topk=3)
 
@@ -1060,7 +1080,7 @@ class Average_Pooling_Scan(object):
             rng.uniform(low=-W_bound, high=W_bound, size=(kern, kern)),
             dtype=theano.config.floatX),
                                borrow=True) #a weight matrix kern*kern
-        
+
 #         input_tensor_l=T.dtensor4("input_tensor_l")
 #         input_tensor_r=T.dtensor4("input_tensor_r")
 #         kern_scan=T.lscalar("kern_scan")
@@ -1072,35 +1092,35 @@ class Average_Pooling_Scan(object):
 #         right_r_scan=T.lscalar("right_r_scan")
 #         dim_scan=T.lscalar("dim_scan")
 #         topk_scan=T.lscalar("topk_scan")
-        
 
-        
+
+
         def sub_operation(input_l, length_l, left_l, right_l, input_r, kernn , length_r, left_r, right_r, dim, topk):
             input_l_matrix=debug_print(input_l.reshape((input_l.shape[1], input_l.shape[2])), 'origin_input_l_matrix')#input_l should be order3 tensor now
             input_l_matrix=debug_print(input_l_matrix[:, left_l:(input_l_matrix.shape[1]-right_l)],'input_l_matrix')
 #             input_r_matrix=debug_print(input_r.reshape((input_r.shape[2], input_r.shape[3])),'origin_input_r_matrix')#input_r should be order4 tensor still
 #             input_r_matrix=debug_print(input_r_matrix[:, left_r:(input_r_matrix.shape[1]-right_r)],'input_r_matrix')
-#              
-#              
+#
+#
 #             simi_tensor=compute_simi_feature_batch1_new(input_l_matrix, input_r_matrix, length_l, length_r, self.W, dim) #(input.shape[0]/2, input.shape[1], input.shape[3], input.shape[3])
 #             simi_question=debug_print(T.max(simi_tensor, axis=1).reshape((1, length_l)),'simi_question')
-#              
+#
 #             neighborsArgSorted = T.argsort(simi_question, axis=1)
 #             kNeighborsArg = neighborsArgSorted[:,-topk:]#only average the top 3 vectors
 #             kNeighborsArgSorted = T.sort(kNeighborsArg, axis=1) # make y indices in acending lie
 #             jj = kNeighborsArgSorted.flatten()
 #             sub_matrix=input_l_matrix.transpose(1,0)[jj].reshape((topk, input_l_matrix.shape[0]))
 #             sub_weights=simi_question.transpose(1,0)[jj].reshape((topk, 1))
-#               
+#
 #             sub_weights =sub_weights/T.sum(sub_weights) #L-1 normalize attentions
 #             sub_weights=T.repeat(sub_weights, kernn, axis=1)
-#             dot_l=debug_print(T.sum(sub_matrix*sub_weights, axis=0), 'dot_l') # is a column now     
-#             dot_l=T.max(sub_matrix, axis=0)   
+#             dot_l=debug_print(T.sum(sub_matrix*sub_weights, axis=0), 'dot_l') # is a column now
+#             dot_l=T.max(sub_matrix, axis=0)
             dot_l=debug_print(T.max(input_l_matrix, axis=1), 'dot_l') # max pooling
             return dot_l
 
-     
-        
+
+
 #         results, updates = theano.scan(fn=sub_operation,
 #                                        outputs_info=None,
 #                                        sequences=[input_tensor_l, length_D_s_scan, left_D_s_scan, right_D_s_scan],
@@ -1110,19 +1130,19 @@ class Average_Pooling_Scan(object):
                                        outputs_info=None,
                                        sequences=[input_D[left_D:doc_len-right_D], length_D_s[left_D: doc_len-right_D], left_D_s[left_D: doc_len-right_D], right_D_s[left_D: doc_len-right_D]],
                                        non_sequences=[input_r, kern, length_r, left_r, right_r, dim, topk])
-        
-#         scan_function = theano.function(inputs=[input_tensor_l, input_tensor_r, kern_scan, length_D_s_scan, left_D_s_scan, right_D_s_scan, length_r_scan, left_r_scan, right_r_scan, dim_scan, topk_scan], 
+
+#         scan_function = theano.function(inputs=[input_tensor_l, input_tensor_r, kern_scan, length_D_s_scan, left_D_s_scan, right_D_s_scan, length_r_scan, left_r_scan, right_r_scan, dim_scan, topk_scan],
 #                                         outputs=results,
 #                                         updates=updates)
-# 
-# 
-#       
-#         sents=scan_function(input_D[left_D:doc_len-right_D], input_r, kern, 
-#                             length_D_s[left_D: doc_len-right_D], left_D_s[left_D: doc_len-right_D], right_D_s[left_D: doc_len-right_D], 
-#                             length_r, 
-#                             left_r, 
-#                             right_r, 
-#                             dim, 
+#
+#
+#
+#         sents=scan_function(input_D[left_D:doc_len-right_D], input_r, kern,
+#                             length_D_s[left_D: doc_len-right_D], left_D_s[left_D: doc_len-right_D], right_D_s[left_D: doc_len-right_D],
+#                             length_r,
+#                             left_r,
+#                             right_r,
+#                             dim,
 #                             topk)
         sents=results
         input_r_matrix=debug_print(input_r.reshape((input_r.shape[2], input_r.shape[3])),'origin_input_r_matrix')
@@ -1132,37 +1152,37 @@ class Average_Pooling_Scan(object):
         valid_matrix=debug_print(sents.transpose(1,0), 'valid_matrix')
         left_padding = T.zeros((input_D.shape[2], left_D), dtype=theano.config.floatX)
         right_padding = T.zeros((input_D.shape[2], right_D), dtype=theano.config.floatX)
-        matrix_padded = T.concatenate([left_padding, valid_matrix, right_padding], axis=1)         
+        matrix_padded = T.concatenate([left_padding, valid_matrix, right_padding], axis=1)
         self.output_D=matrix_padded   #it shows the second conv for doc has input of all sentences
         self.output_D_valid_part=valid_matrix
         self.output_QA_sent_level_rep=T.max(input_r_matrix, axis=1)
-        
+
         #now, average pooling by comparing self.output_QA and self.output_D_valid_part, choose one key sentence
         topk=1
         simi_matrix=debug_print(compute_simi_feature_matrix_with_column(self.output_D_valid_part, self.output_QA_sent_level_rep, doc_len-left_D-right_D, 1, doc_len), 'simi_matrix_matrix_with_column') #(input.shape[0]/2, input.shape[1], input.shape[3], input.shape[3])
         simi_question=debug_print(simi_matrix.reshape((1, doc_len-left_D-right_D)),'simi_question')
-        
+
         neighborsArgSorted = T.argsort(simi_question, axis=1)
         kNeighborsArg = neighborsArgSorted[:,-topk:]#only average the top 3 vectors
         kNeighborsArgSorted = T.sort(kNeighborsArg, axis=1) # make y indices in acending lie
         jj = kNeighborsArgSorted.flatten()
         sub_matrix=self.output_D_valid_part.transpose(1,0)[jj].reshape((topk, self.output_D_valid_part.shape[0]))
         sub_weights=simi_question.transpose(1,0)[jj].reshape((topk, 1))
-        
+
         sub_weights =sub_weights/T.sum(sub_weights) #L-1 normalize attentions
-        #weights_answer=simi_answer/T.sum(simi_answer)    
+        #weights_answer=simi_answer/T.sum(simi_answer)
         #concate=T.concatenate([weights_question, weights_answer], axis=1)
         #reshaped_concate=concate.reshape((input.shape[0], 1, 1, length_last_dim))
-        
+
         sub_weights=T.repeat(sub_weights, kern, axis=1)
         #weights_answer_matrix=T.repeat(weights_answer, kern, axis=0)
-        
+
         #with attention
-#         output_D_sent_level_rep=debug_print(T.sum(sub_matrix*sub_weights, axis=0), 'output_D_sent_level_rep') # is a column now    
-        output_D_sent_level_rep=debug_print(T.max(sub_matrix, axis=0), 'output_D_sent_level_rep') # is a column now    
-        self.output_D_sent_level_rep=output_D_sent_level_rep    
-        
-        
+#         output_D_sent_level_rep=debug_print(T.sum(sub_matrix*sub_weights, axis=0), 'output_D_sent_level_rep') # is a column now
+        output_D_sent_level_rep=debug_print(T.max(sub_matrix, axis=0), 'output_D_sent_level_rep') # is a column now
+        self.output_D_sent_level_rep=output_D_sent_level_rep
+
+
 
         self.params = [self.W]
 
@@ -1172,7 +1192,7 @@ class GRU_Average_Pooling_Scan(object):
     def __init__(self, rng, input_D, input_r, kern, left_D, right_D, dim, doc_len, topk): # length_l, length_r: valid lengths after conv
 #     layer1_DQ=Average_Pooling(rng, input_l=layer0_D_output, input_r=layer0_Q_output, kern=nkerns[0],
 #                                       left_D=left_D, right_D=right_D,
-#                      left_l=left_D_s, right_l=right_D_s, left_r=left_Q, right_r=right_Q, 
+#                      left_l=left_D_s, right_l=right_D_s, left_r=left_Q, right_r=right_Q,
 #                       length_l=len_D_s+filter_words[1]-1, length_r=len_Q+filter_words[1]-1,
 #                        dim=maxSentLength+filter_words[1]-1, doc_len=maxDocLength, topk=3)
 
@@ -1188,7 +1208,7 @@ class GRU_Average_Pooling_Scan(object):
 #             rng.uniform(low=-W_bound, high=W_bound, size=(kern, kern)),
 #             dtype=theano.config.floatX),
 #                                borrow=True) #a weight matrix kern*kern
-        
+
 #         input_tensor_l=T.dtensor4("input_tensor_l")
 #         input_tensor_r=T.dtensor4("input_tensor_r")
 #         kern_scan=T.lscalar("kern_scan")
@@ -1200,57 +1220,57 @@ class GRU_Average_Pooling_Scan(object):
 #         right_r_scan=T.lscalar("right_r_scan")
 #         dim_scan=T.lscalar("dim_scan")
 #         topk_scan=T.lscalar("topk_scan")
-        
 
-        
+
+
 #         def sub_operation(input_l, length_l, left_l, right_l, input_r, kernn , length_r, left_r, right_r, dim, topk):
 #             input_l_matrix=debug_print(input_l.reshape((input_l.shape[1], input_l.shape[2])), 'origin_input_l_matrix')#input_l should be order3 tensor now
 #             input_l_matrix=debug_print(input_l_matrix[:, left_l:(input_l_matrix.shape[1]-right_l)],'input_l_matrix')
 # #             input_r_matrix=debug_print(input_r.reshape((input_r.shape[2], input_r.shape[3])),'origin_input_r_matrix')#input_r should be order4 tensor still
 # #             input_r_matrix=debug_print(input_r_matrix[:, left_r:(input_r_matrix.shape[1]-right_r)],'input_r_matrix')
-# #              
-# #              
+# #
+# #
 # #             simi_tensor=compute_simi_feature_batch1_new(input_l_matrix, input_r_matrix, length_l, length_r, self.W, dim) #(input.shape[0]/2, input.shape[1], input.shape[3], input.shape[3])
 # #             simi_question=debug_print(T.max(simi_tensor, axis=1).reshape((1, length_l)),'simi_question')
-# #              
+# #
 # #             neighborsArgSorted = T.argsort(simi_question, axis=1)
 # #             kNeighborsArg = neighborsArgSorted[:,-topk:]#only average the top 3 vectors
 # #             kNeighborsArgSorted = T.sort(kNeighborsArg, axis=1) # make y indices in acending lie
 # #             jj = kNeighborsArgSorted.flatten()
 # #             sub_matrix=input_l_matrix.transpose(1,0)[jj].reshape((topk, input_l_matrix.shape[0]))
 # #             sub_weights=simi_question.transpose(1,0)[jj].reshape((topk, 1))
-# #               
+# #
 # #             sub_weights =sub_weights/T.sum(sub_weights) #L-1 normalize attentions
 # #             sub_weights=T.repeat(sub_weights, kernn, axis=1)
-# #             dot_l=debug_print(T.sum(sub_matrix*sub_weights, axis=0), 'dot_l') # is a column now     
-# #             dot_l=T.max(sub_matrix, axis=0)   
+# #             dot_l=debug_print(T.sum(sub_matrix*sub_weights, axis=0), 'dot_l') # is a column now
+# #             dot_l=T.max(sub_matrix, axis=0)
 #             dot_l=debug_print(T.max(input_l_matrix, axis=1), 'dot_l') # max pooling
 #             return dot_l
-# 
-#      
-#         
+#
+#
+#
 # #         results, updates = theano.scan(fn=sub_operation,
 # #                                        outputs_info=None,
 # #                                        sequences=[input_tensor_l, length_D_s_scan, left_D_s_scan, right_D_s_scan],
 # #                                        non_sequences=[input_tensor_r, kern_scan, length_r_scan, left_r_scan, right_r_scan, dim_scan, topk_scan])
-# 
+#
 #         results, updates = theano.scan(fn=sub_operation,
 #                                        outputs_info=None,
 #                                        sequences=[input_D[left_D:doc_len-right_D], length_D_s[left_D: doc_len-right_D], left_D_s[left_D: doc_len-right_D], right_D_s[left_D: doc_len-right_D]],
 #                                        non_sequences=[input_r, kern, length_r, left_r, right_r, dim, topk])
-        
-#         scan_function = theano.function(inputs=[input_tensor_l, input_tensor_r, kern_scan, length_D_s_scan, left_D_s_scan, right_D_s_scan, length_r_scan, left_r_scan, right_r_scan, dim_scan, topk_scan], 
+
+#         scan_function = theano.function(inputs=[input_tensor_l, input_tensor_r, kern_scan, length_D_s_scan, left_D_s_scan, right_D_s_scan, length_r_scan, left_r_scan, right_r_scan, dim_scan, topk_scan],
 #                                         outputs=results,
 #                                         updates=updates)
-# 
-# 
-#       
-#         sents=scan_function(input_D[left_D:doc_len-right_D], input_r, kern, 
-#                             length_D_s[left_D: doc_len-right_D], left_D_s[left_D: doc_len-right_D], right_D_s[left_D: doc_len-right_D], 
-#                             length_r, 
-#                             left_r, 
-#                             right_r, 
-#                             dim, 
+#
+#
+#
+#         sents=scan_function(input_D[left_D:doc_len-right_D], input_r, kern,
+#                             length_D_s[left_D: doc_len-right_D], left_D_s[left_D: doc_len-right_D], right_D_s[left_D: doc_len-right_D],
+#                             length_r,
+#                             left_r,
+#                             right_r,
+#                             dim,
 #                             topk)
 #         sents=results
 #         input_r_matrix=debug_print(input_r.reshape((input_r.shape[2], input_r.shape[3])),'origin_input_r_matrix')
@@ -1260,49 +1280,49 @@ class GRU_Average_Pooling_Scan(object):
         valid_matrix=debug_print(input_D, 'valid_matrix')
         left_padding = T.zeros((input_D.shape[0], left_D), dtype=theano.config.floatX)
         right_padding = T.zeros((input_D.shape[0], right_D), dtype=theano.config.floatX)
-        matrix_padded = T.concatenate([left_padding, valid_matrix, right_padding], axis=1)         
+        matrix_padded = T.concatenate([left_padding, valid_matrix, right_padding], axis=1)
         self.output_D=matrix_padded   #it shows the second conv for doc has input of all sentences
         self.output_D_valid_part=valid_matrix
         self.output_QA_sent_level_rep=input_r
-        
+
         #now, average pooling by comparing self.output_QA and self.output_D_valid_part, choose one key sentence
         topk=1
         simi_matrix=debug_print(compute_simi_feature_matrix_with_column(self.output_D_valid_part, self.output_QA_sent_level_rep, doc_len-left_D-right_D, 1, doc_len), 'simi_matrix_matrix_with_column') #(input.shape[0]/2, input.shape[1], input.shape[3], input.shape[3])
         simi_question=debug_print(simi_matrix.reshape((1, doc_len-left_D-right_D)),'simi_question')
-        
+
         neighborsArgSorted = T.argsort(simi_question, axis=1)
         kNeighborsArg = neighborsArgSorted[:,-topk:]#only average the top 3 vectors
         kNeighborsArgSorted = T.sort(kNeighborsArg, axis=1) # make y indices in acending lie
         jj = kNeighborsArgSorted.flatten()
         sub_matrix=self.output_D_valid_part.transpose(1,0)[jj].reshape((topk, self.output_D_valid_part.shape[0]))
         sub_weights=simi_question.transpose(1,0)[jj].reshape((topk, 1))
-        
+
         sub_weights =sub_weights/T.sum(sub_weights) #L-1 normalize attentions
-        #weights_answer=simi_answer/T.sum(simi_answer)    
+        #weights_answer=simi_answer/T.sum(simi_answer)
         #concate=T.concatenate([weights_question, weights_answer], axis=1)
         #reshaped_concate=concate.reshape((input.shape[0], 1, 1, length_last_dim))
-        
+
         sub_weights=T.repeat(sub_weights, kern, axis=1)
         #weights_answer_matrix=T.repeat(weights_answer, kern, axis=0)
-        
+
         #with attention
-#         output_D_sent_level_rep=debug_print(T.sum(sub_matrix*sub_weights, axis=0), 'output_D_sent_level_rep') # is a column now    
-        output_D_sent_level_rep=debug_print(T.max(sub_matrix, axis=0), 'output_D_sent_level_rep') # is a column now    
-        self.output_D_sent_level_rep=output_D_sent_level_rep    
-        
-        
+#         output_D_sent_level_rep=debug_print(T.sum(sub_matrix*sub_weights, axis=0), 'output_D_sent_level_rep') # is a column now
+        output_D_sent_level_rep=debug_print(T.max(sub_matrix, axis=0), 'output_D_sent_level_rep') # is a column now
+        self.output_D_sent_level_rep=output_D_sent_level_rep
+
+
 
 #         self.params = [self.W]
 
-def dropout_standard(is_train, input, p, rng): 
+def dropout_standard(is_train, input, p, rng):
     """
     :type input: numpy.array
     :param input: layer or weight matrix on which dropout resp. dropconnect is applied
-    
-    :type p: float or double between 0. and 1. 
+
+    :type p: float or double between 0. and 1.
     :param p: p probability of NOT dropping out a unit or connection, therefore (1.-p) is the drop rate.
-    
-    """            
+
+    """
     srng = T.shared_randomstreams.RandomStreams(rng.randint(999999))
     mask = srng.binomial(n = 1, p = 1-p, size = input.shape, dtype = theano.config.floatX)
     return  T.switch(T.eq(is_train, 1), input * mask, input * (1 - p))
@@ -1314,174 +1334,174 @@ class Average_Pooling_RNN(object):
     def __init__(self, rng, input_D, input_r, kern, left_D, right_D,doc_len, topk): # length_l, length_r: valid lengths after conv
 #     layer1_DQ=Average_Pooling(rng, input_l=layer0_D_output, input_r=layer0_Q_output, kern=nkerns[0],
 #                                       left_D=left_D, right_D=right_D,
-#                      left_l=left_D_s, right_l=right_D_s, left_r=left_Q, right_r=right_Q, 
+#                      left_l=left_D_s, right_l=right_D_s, left_r=left_Q, right_r=right_Q,
 #                       length_l=len_D_s+filter_words[1]-1, length_r=len_Q+filter_words[1]-1,
 #                        dim=maxSentLength+filter_words[1]-1, doc_len=maxDocLength, topk=3)
 
 
-        
+
 
 
         self.output_D_valid_part=input_D
         self.output_QA_sent_level_rep=input_r
-        
+
         #now, average pooling by comparing self.output_QA and self.output_D_valid_part, choose one key sentence
         topk=1
         simi_matrix=debug_print(compute_simi_feature_matrix_with_column(self.output_D_valid_part, self.output_QA_sent_level_rep, doc_len-left_D-right_D, 1, doc_len), 'simi_matrix_matrix_with_column') #(input.shape[0]/2, input.shape[1], input.shape[3], input.shape[3])
         simi_question=debug_print(simi_matrix.reshape((1, doc_len-left_D-right_D)),'simi_question')
-         
+
         neighborsArgSorted = T.argsort(simi_question, axis=1)
         kNeighborsArg = neighborsArgSorted[:,-topk:]#only average the top 3 vectors
         kNeighborsArgSorted = T.sort(kNeighborsArg, axis=1) # make y indices in acending lie
         jj = kNeighborsArgSorted.flatten()
         sub_matrix=self.output_D_valid_part.transpose(1,0)[jj].reshape((topk, self.output_D_valid_part.shape[0]))
         sub_weights=simi_question.transpose(1,0)[jj].reshape((topk, 1))
-         
+
         sub_weights =sub_weights/T.sum(sub_weights) #L-1 normalize attentions
-        #weights_answer=simi_answer/T.sum(simi_answer)    
+        #weights_answer=simi_answer/T.sum(simi_answer)
         #concate=T.concatenate([weights_question, weights_answer], axis=1)
         #reshaped_concate=concate.reshape((input.shape[0], 1, 1, length_last_dim))
-         
+
         sub_weights=T.repeat(sub_weights, kern, axis=1)
         #weights_answer_matrix=T.repeat(weights_answer, kern, axis=0)
-         
+
         #with attention
-#         output_D_sent_level_rep=debug_print(T.sum(sub_matrix*sub_weights, axis=0), 'output_D_sent_level_rep') # is a column now    
-        output_D_rep=debug_print(T.max(sub_matrix, axis=0), 'output_D_rep') # is a column now    
-        self.output_D_sent_level_rep=output_D_rep    
+#         output_D_sent_level_rep=debug_print(T.sum(sub_matrix*sub_weights, axis=0), 'output_D_sent_level_rep') # is a column now
+        output_D_rep=debug_print(T.max(sub_matrix, axis=0), 'output_D_rep') # is a column now
+        self.output_D_sent_level_rep=output_D_rep
 
 
 def compute_simi_feature_batch1_new(input_l_matrix, input_r_matrix, length_l, length_r, para_matrix, dim):
     #matrix_r_after_translate=debug_print(T.dot(para_matrix, input_r_matrix), 'matrix_r_after_translate')
     matrix_r_after_translate=input_r_matrix
-    
+
     input_l_tensor=input_l_matrix.dimshuffle('x',0,1)
     input_l_tensor=T.repeat(input_l_tensor, dim, axis=0)[:length_r,:,:]
     input_l_tensor=input_l_tensor.dimshuffle(2,1,0).dimshuffle(0,2,1)
     repeated_1=input_l_tensor.reshape((length_l*length_r, input_l_matrix.shape[0])).dimshuffle(1,0)
-    
+
     input_r_tensor=matrix_r_after_translate.dimshuffle('x',0,1)
     input_r_tensor=T.repeat(input_r_tensor, dim, axis=0)[:length_l,:,:]
     input_r_tensor=input_r_tensor.dimshuffle(0,2,1)
     repeated_2=input_r_tensor.reshape((length_l*length_r, matrix_r_after_translate.shape[0])).dimshuffle(1,0)
-    
 
-    
-    #cosine attention   
+
+
+    #cosine attention
     length_1=debug_print(1e-10+T.sqrt(T.sum(T.sqr(repeated_1), axis=0)),'length_1')
     length_2=debug_print(1e-10+T.sqrt(T.sum(T.sqr(repeated_2), axis=0)), 'length_2')
 
     multi=debug_print(repeated_1*repeated_2, 'multi')
     sum_multi=debug_print(T.sum(multi, axis=0),'sum_multi')
-    
+
     list_of_simi= debug_print(sum_multi/(length_1*length_2),'list_of_simi')   #to get rid of zero length
     simi_matrix=debug_print(list_of_simi.reshape((length_l, length_r)), 'simi_matrix')
-    
-    
+
+
 #     #euclid, effective for wikiQA
 #     gap=debug_print(repeated_1-repeated_2, 'gap')
 #     eucli=debug_print(T.sqrt(1e-10+T.sum(T.sqr(gap), axis=0)),'eucli')
 #     simi_matrix=debug_print((1.0/(1.0+eucli)).reshape((length_l, length_r)), 'simi_matrix')
-    
-    
+
+
     return simi_matrix#[:length_l, :length_r]
 
 def compute_simi_feature_matrix_with_matrix(input_l_matrix, input_r_matrix, length_l, length_r, dim):
     #this function is the same with "compute_simi_feature_batch1_new", except that this has no input parameters
     matrix_r_after_translate=input_r_matrix
-    
+
     input_l_tensor=input_l_matrix.dimshuffle('x',0,1)
     input_l_tensor=T.repeat(input_l_tensor, dim, axis=0)[:length_r,:,:]
     input_l_tensor=input_l_tensor.dimshuffle(2,1,0).dimshuffle(0,2,1)
     repeated_1=input_l_tensor.reshape((length_l*length_r, input_l_matrix.shape[0])).dimshuffle(1,0)
-    
+
     input_r_tensor=matrix_r_after_translate.dimshuffle('x',0,1)
     input_r_tensor=T.repeat(input_r_tensor, dim, axis=0)[:length_l,:,:]
     input_r_tensor=input_r_tensor.dimshuffle(0,2,1)
     repeated_2=input_r_tensor.reshape((length_l*length_r, matrix_r_after_translate.shape[0])).dimshuffle(1,0)
-    
 
-    
-    #cosine attention   
+
+
+    #cosine attention
     length_1=debug_print(1e-10+T.sqrt(T.sum(T.sqr(repeated_1), axis=0)),'length_1')
     length_2=debug_print(1e-10+T.sqrt(T.sum(T.sqr(repeated_2), axis=0)), 'length_2')
 
     multi=debug_print(repeated_1*repeated_2, 'multi')
     sum_multi=debug_print(T.sum(multi, axis=0),'sum_multi')
-    
+
     list_of_simi= debug_print(sum_multi/(length_1*length_2),'list_of_simi')   #to get rid of zero length
     simi_matrix=debug_print(list_of_simi.reshape((length_l, length_r)), 'simi_matrix')
-    
-    
+
+
 #     #euclid, effective for wikiQA
 #     gap=debug_print(repeated_1-repeated_2, 'gap')
 #     eucli=debug_print(T.sqrt(1e-10+T.sum(T.sqr(gap), axis=0)),'eucli')
 #     simi_matrix=debug_print((1.0/(1.0+eucli)).reshape((length_l, length_r)), 'simi_matrix')
-    
-    
+
+
     return simi_matrix#[:length_l, :length_r]
 
 def compute_attention_feature_matrix_with_matrix(input_l_matrix, input_r_matrix, length_l, length_r, dim, W1, W2, w):
     #this function is the same with "compute_simi_feature_batch1_new", except that this has no input parameters
     matrix_r_after_translate=input_r_matrix
-    
+
     input_l_tensor=input_l_matrix.dimshuffle('x',0,1)
     input_l_tensor=T.repeat(input_l_tensor, dim, axis=0)[:length_r,:,:]
     input_l_tensor=input_l_tensor.dimshuffle(2,1,0).dimshuffle(0,2,1)
     repeated_1=input_l_tensor.reshape((length_l*length_r, input_l_matrix.shape[0])).dimshuffle(1,0)
-    
+
     input_r_tensor=matrix_r_after_translate.dimshuffle('x',0,1)
     input_r_tensor=T.repeat(input_r_tensor, dim, axis=0)[:length_l,:,:]
     input_r_tensor=input_r_tensor.dimshuffle(0,2,1)
     repeated_2=input_r_tensor.reshape((length_l*length_r, matrix_r_after_translate.shape[0])).dimshuffle(1,0)
-    
+
     proj_1=W1.dot(repeated_1)
     proj_2=W2.dot(repeated_2)
-    
+
     attentions=T.tanh(w.dot(proj_1+proj_2))
     attention_matrix=attentions.reshape((length_l, length_r))
-#     #cosine attention   
+#     #cosine attention
 #     length_1=debug_print(1e-10+T.sqrt(T.sum(T.sqr(repeated_1), axis=0)),'length_1')
 #     length_2=debug_print(1e-10+T.sqrt(T.sum(T.sqr(repeated_2), axis=0)), 'length_2')
-# 
+#
 #     multi=debug_print(repeated_1*repeated_2, 'multi')
 #     sum_multi=debug_print(T.sum(multi, axis=0),'sum_multi')
-#     
+#
 #     list_of_simi= debug_print(sum_multi/(length_1*length_2),'list_of_simi')   #to get rid of zero length
 #     simi_matrix=debug_print(list_of_simi.reshape((length_l, length_r)), 'simi_matrix')
-    
-    
+
+
 #     #euclid, effective for wikiQA
 #     gap=debug_print(repeated_1-repeated_2, 'gap')
 #     eucli=debug_print(T.sqrt(1e-10+T.sum(T.sqr(gap), axis=0)),'eucli')
 #     simi_matrix=debug_print((1.0/(1.0+eucli)).reshape((length_l, length_r)), 'simi_matrix')
-    
-    
+
+
     return attention_matrix#[:length_l, :length_r]
 
 def compute_simi_feature_matrix_with_column(input_l_matrix, column, length_l, length_r, dim):
     column=column.reshape((column.shape[0],1))
     repeated_2=T.repeat(column, dim, axis=1)[:,:length_l]
-    
 
-    
-    #cosine attention   
+
+
+    #cosine attention
     length_1=debug_print(1e-10+T.sqrt(T.sum(T.sqr(input_l_matrix), axis=0)),'length_1')
     length_2=debug_print(1e-10+T.sqrt(T.sum(T.sqr(repeated_2), axis=0)), 'length_2')
 
     multi=debug_print(input_l_matrix*repeated_2, 'multi')
     sum_multi=debug_print(T.sum(multi, axis=0),'sum_multi')
-    
+
     list_of_simi= debug_print(sum_multi/(length_1*length_2),'list_of_simi')   #to get rid of zero length
     simi_matrix=debug_print(list_of_simi.reshape((length_l, length_r)), 'simi_matrix')
-    
-    
+
+
 #     #euclid, effective for wikiQA
 #     gap=debug_print(input_l_matrix-repeated_2, 'gap')
 #     eucli=debug_print(T.sqrt(1e-10+T.sum(T.sqr(gap), axis=0)),'eucli')
 #     simi_matrix=debug_print((1.0/(1.0+eucli)).reshape((length_l, length_r)), 'simi_matrix')
-    
-    
+
+
     return simi_matrix#[:length_l, :length_r]
 
 def compute_simi_feature(tensor, dim, para_matrix):
@@ -1492,15 +1512,15 @@ def compute_simi_feature(tensor, dim, para_matrix):
 
     repeated_1=debug_print(T.repeat(odd_tensor, dim, axis=3),'repeated_1')
     repeated_2=debug_print(repeat_whole_matrix(fake_even_tensor, dim, False),'repeated_2')
-    #repeated_2=T.repeat(even_tensor, even_tensor.shape[3], axis=2).reshape((tensor.shape[0]/2, tensor.shape[1], tensor.shape[2], tensor.shape[3]**2))    
+    #repeated_2=T.repeat(even_tensor, even_tensor.shape[3], axis=2).reshape((tensor.shape[0]/2, tensor.shape[1], tensor.shape[2], tensor.shape[3]**2))
     length_1=debug_print(1e-10+T.sqrt(T.sum(T.sqr(repeated_1), axis=2)),'length_1')
     length_2=debug_print(1e-10+T.sqrt(T.sum(T.sqr(repeated_2), axis=2)), 'length_2')
 
     multi=debug_print(repeated_1*repeated_2, 'multi')
     sum_multi=debug_print(T.sum(multi, axis=2),'sum_multi')
-    
+
     list_of_simi= debug_print(sum_multi/(length_1*length_2),'list_of_simi')   #to get rid of zero length
-    
+
     return list_of_simi.reshape((tensor.shape[0]/2, tensor.shape[1], tensor.shape[3], tensor.shape[3]))
 
 def compute_acc(label_list, scores_list):
@@ -1516,7 +1536,7 @@ def compute_acc(label_list, scores_list):
     start_posi=range(total_examples)*500
     for i in start_posi:
         set_1=set()
-        
+
         for scan in range(i, i+500):
             if label_list[scan]==1:
                 set_1.add(scan)
@@ -1528,7 +1548,7 @@ def compute_acc(label_list, scores_list):
                     flag=False
         if flag==True:
             correct_count+=1
-    
+
     return correct_count*1.0/total_examples
 #def unify_eachone(tensor, left1, right1, left2, right2, dim, Np):
 def top_k_pooling(matrix, sentlength_1, sentlength_2, Np):
@@ -1541,21 +1561,21 @@ def top_k_pooling(matrix, sentlength_1, sentlength_2, Np):
     repeat_row=Np/sentlength_1
     extra_row=Np%sentlength_1
     repeat_col=Np/sentlength_2
-    extra_col=Np%sentlength_2    
+    extra_col=Np%sentlength_2
     '''
     #repeat core
-    matrix_1=repeat_whole_tensor(matrix, 5, True) 
+    matrix_1=repeat_whole_tensor(matrix, 5, True)
     matrix_2=repeat_whole_tensor(matrix_1, 5, False)
 
     list_values=matrix_2.flatten()
     neighborsArgSorted = T.argsort(list_values)
-    kNeighborsArg = neighborsArgSorted[-(Np**2):]    
+    kNeighborsArg = neighborsArgSorted[-(Np**2):]
     top_k_values=list_values[kNeighborsArg]
-    
+
 
     all_max_value=top_k_values.reshape((1, Np**2))
-    
-    return all_max_value  
+
+    return all_max_value
 def unify_eachone(matrix, sentlength_1, sentlength_2, Np):
 
     #tensor: (1, feature maps, 66, 66)
@@ -1566,15 +1586,15 @@ def unify_eachone(matrix, sentlength_1, sentlength_2, Np):
     repeat_row=Np/sentlength_1
     extra_row=Np%sentlength_1
     repeat_col=Np/sentlength_2
-    extra_col=Np%sentlength_2    
+    extra_col=Np%sentlength_2
 
     #repeat core
-    matrix_1=repeat_whole_tensor(matrix, 5, True) 
+    matrix_1=repeat_whole_tensor(matrix, 5, True)
     matrix_2=repeat_whole_tensor(matrix_1, 5, False)
-    
+
     new_rows=T.maximum(sentlength_1, sentlength_1*repeat_row+extra_row)
     new_cols=T.maximum(sentlength_2, sentlength_2*repeat_col+extra_col)
-    
+
     #core=debug_print(core_2[:,:, :new_rows, : new_cols],'core')
     new_matrix=debug_print(matrix_2[:new_rows,:new_cols], 'new_matrix')
     #determine x, y start positions
@@ -1582,10 +1602,10 @@ def unify_eachone(matrix, sentlength_1, sentlength_2, Np):
     remain_row=new_rows%Np
     size_col=new_cols/Np
     remain_col=new_cols%Np
-    
+
     xx=debug_print(T.concatenate([T.arange(Np-remain_row+1)*size_row, (Np-remain_row)*size_row+(T.arange(remain_row)+1)*(size_row+1)]),'xx')
     yy=debug_print(T.concatenate([T.arange(Np-remain_col+1)*size_col, (Np-remain_col)*size_col+(T.arange(remain_col)+1)*(size_col+1)]),'yy')
-    
+
     list_of_maxs=[]
     for i in xrange(Np):
         for j in xrange(Np):
@@ -1593,11 +1613,11 @@ def unify_eachone(matrix, sentlength_1, sentlength_2, Np):
             #maxvalue1=debug_print(T.max(region, axis=2), 'maxvalue1')
             maxvalue=debug_print(T.max(region).reshape((1,1)), 'maxvalue')
             list_of_maxs.append(maxvalue)
-    
+
 
     all_max_value=T.concatenate(list_of_maxs, axis=1).reshape((1, Np**2))
-    
-    return all_max_value            
+
+    return all_max_value
 
 
 class Create_Attention_Input_Cnn(object):
@@ -1611,16 +1631,16 @@ class Create_Attention_Input_Cnn(object):
         repeated_1=debug_print(T.repeat(matrix_l, dim, axis=1),'repeated_1') # add 10 because max_sent_length is only input for conv, conv will make size bigger
         repeated_2=debug_print(repeat_whole_tensor(matrix_r, dim, False),'repeated_2')
         '''
-        #cosine attention   
+        #cosine attention
         length_1=debug_print(1e-10+T.sqrt(T.sum(T.sqr(repeated_1), axis=0)),'length_1')
         length_2=debug_print(1e-10+T.sqrt(T.sum(T.sqr(repeated_2), axis=0)), 'length_2')
-    
+
         multi=debug_print(repeated_1*repeated_2, 'multi')
         sum_multi=debug_print(T.sum(multi, axis=0),'sum_multi')
-        
+
         list_of_simi= debug_print(sum_multi/(length_1*length_2),'list_of_simi')   #to get rid of zero length
         simi_matrix=debug_print(list_of_simi.reshape((length_l, length_r)), 'simi_matrix')
-        
+
         '''
         #euclid, effective for wikiQA
         gap=debug_print(repeated_1-repeated_2, 'gap')
@@ -1634,40 +1654,40 @@ class Create_Attention_Input_Cnn(object):
         left_zeros_l=T.set_subtensor(matrix_l_attention[:,:l_left_pad], T.zeros((matrix_l_attention.shape[0], l_left_pad), dtype=theano.config.floatX))
         right_zeros_l=T.set_subtensor(left_zeros_l[:,-l_right_pad:], T.zeros((matrix_l_attention.shape[0], l_right_pad), dtype=theano.config.floatX))
         left_zeros_r=T.set_subtensor(matrix_r_attention[:,:r_left_pad], T.zeros((matrix_r_attention.shape[0], r_left_pad), dtype=theano.config.floatX))
-        right_zeros_r=T.set_subtensor(left_zeros_r[:,-r_right_pad:], T.zeros((matrix_r_attention.shape[0], r_right_pad), dtype=theano.config.floatX))       
+        right_zeros_r=T.set_subtensor(left_zeros_r[:,-r_right_pad:], T.zeros((matrix_r_attention.shape[0], r_right_pad), dtype=theano.config.floatX))
         #combine with original input matrix
-        self.new_tensor_l=T.concatenate([matrix_l,right_zeros_l], axis=0).reshape((tensor_l.shape[0], 2*tensor_l.shape[1], tensor_l.shape[2], tensor_l.shape[3])) 
-        self.new_tensor_r=T.concatenate([matrix_r,right_zeros_r], axis=0).reshape((tensor_r.shape[0], 2*tensor_r.shape[1], tensor_r.shape[2], tensor_r.shape[3])) 
-        
+        self.new_tensor_l=T.concatenate([matrix_l,right_zeros_l], axis=0).reshape((tensor_l.shape[0], 2*tensor_l.shape[1], tensor_l.shape[2], tensor_l.shape[3]))
+        self.new_tensor_r=T.concatenate([matrix_r,right_zeros_r], axis=0).reshape((tensor_r.shape[0], 2*tensor_r.shape[1], tensor_r.shape[2], tensor_r.shape[3]))
+
         self.params=[self.W]
 
 def Diversify_Reg(W):
-    loss=((W.dot(W.T)-T.eye(n=W.shape[0], m=W.shape[0], k=0, dtype=theano.config.floatX))**2).sum()  
-    return loss  
+    loss=((W.dot(W.T)-T.eye(n=W.shape[0], m=W.shape[0], k=0, dtype=theano.config.floatX))**2).sum()
+    return loss
 
 
-    
+
 def normalize_matrix(M):
     norm=T.sqrt(T.sum(T.sqr(M)))
     return M/norm
 def L2norm_paraList(params):
     return T.sum([T.sum(x ** 2) for x in params])
-    
+
 # def L2norm_paraList(paralist):
 #     summ=0.0
-#     
+#
 #     for para in paralist:
-#         summ+=(para** 2).mean()  
-#     return summ  
+#         summ+=(para** 2).mean()
+#     return summ
 def constant_param(value=0.0, shape=(0,)):
 #     return theano.shared(lasagne.init.Constant(value).sample(shape), borrow=True)
     return theano.shared(numpy.full(shape, value, dtype=theano.config.floatX), borrow=True)
-    
+
 
 def normal_param(std=0.1, mean=0.0, shape=(0,)):
 #     return theano.shared(lasagne.init.Normal(std, mean).sample(shape), borrow=True)
     U=numpy.random.normal(mean, std, shape)
-    return theano.shared(name='U', value=U.astype(theano.config.floatX), borrow=True)    
+    return theano.shared(name='U', value=U.astype(theano.config.floatX), borrow=True)
 def cosine_simi(x, y):
     #this is better
     a = np.array(x)
@@ -1682,12 +1702,12 @@ class Conv_then_GRU_then_Classify(object):
         self.paragraph_para, self.paragraph_conv_output, self.paragraph_gru_output_tensor, self.paragraph_gru_output_reps=conv_then_gru(rng, concate_paragraph_input, output_h_size, input_h_size_1, conv_width, batch_size, para_len_limit, para_mask)
 
         self.q_para, self.q_conv_output, self.q_gru_output_tensor, self.q_gru_output_reps=conv_then_gru(rng, Qs_emb, output_h_size, input_h_size_2, conv_width, batch_size, q_len_limit, q_mask)
-     
+
         LR_mask=para_mask[:,:-1]*para_mask[:,1:]
         self.classify_para, self.error, self.masked_dis=combine_for_LR(rng, output_h_size, self.paragraph_gru_output_tensor, self.q_gru_output_reps, LR_mask, batch_size, labels)
         self.masked_dis_inprediction=self.masked_dis*T.sqrt(layer_scalar)
         self.paras=self.paragraph_para+self.q_para+self.classify_para
-        
+
 def conv_then_gru(rng, input_tensor3, out_h_size, in_h_size, conv_width, batch_size, size_last_dim, mask):
     conv_input=input_tensor3.dimshuffle((0,'x', 1,2)) #(batch_size, 1, emb+3, maxparalen)
     conv_W, conv_b=create_conv_para(rng, filter_shape=(out_h_size, 1, in_h_size, conv_width))
@@ -1699,13 +1719,13 @@ def conv_then_gru(rng, input_tensor3, out_h_size, in_h_size, conv_width, batch_s
 
     U, W, b=create_GRU_para(rng, out_h_size, out_h_size)
     U_b, W_b, b_b=create_GRU_para(rng, out_h_size, out_h_size)
-    gru_para=[U, W, b, U_b, W_b, b_b] 
+    gru_para=[U, W, b, U_b, W_b, b_b]
     gru_input=conv_output.reshape((conv_output.shape[0], conv_output.shape[2], conv_output.shape[3]))
     gru_mask=mask[:,:-1]*mask[:,1:]
     gru_model=Bd_GRU_Batch_Tensor_Input_with_Mask(X=gru_input, Mask=gru_mask, hidden_dim=out_h_size,U=U,W=W,b=b,Ub=U_b,Wb=W_b,bb=b_b)
-    gru_output_tensor=gru_model.output_tensor #(batch, hidden_dim, para_len-1)  
+    gru_output_tensor=gru_model.output_tensor #(batch, hidden_dim, para_len-1)
     gru_output_reps=gru_model.output_sent_rep_maxpooling.reshape((batch_size, 1, out_h_size)) #(batch, 2*out_size)
-    
+
     overall_para= conv_para + gru_para
     return overall_para, conv_output, gru_output_tensor, gru_output_reps
 def combine_for_LR(rng, hidden_size, para_reps, questions_reps, para_mask, batch_size, labels):
@@ -1713,7 +1733,7 @@ def combine_for_LR(rng, hidden_size, para_reps, questions_reps, para_mask, batch
     W_a1 = create_ensemble_para(rng, hidden_size, hidden_size)# init_weights((2*hidden_size, hidden_size))
     W_a2 = create_ensemble_para(rng, hidden_size, hidden_size)
     U_a = create_ensemble_para(rng, 2, hidden_size) # 3 extra features
-    
+
     norm_W_a1=normalize_matrix(W_a1)
     norm_W_a2=normalize_matrix(W_a2)
     norm_U_a=normalize_matrix(U_a)
@@ -1721,29 +1741,29 @@ def combine_for_LR(rng, hidden_size, para_reps, questions_reps, para_mask, batch
     LR_b = theano.shared(value=numpy.zeros((2,),
                                                  dtype=theano.config.floatX),  # @UndefinedVariable
                                name='LR_b', borrow=True)
-     
+
     attention_paras=[W_a1, W_a2, U_a, LR_b]
-    
+
     transformed_para_reps=T.tanh(T.dot(para_reps.transpose((0, 2,1)), norm_W_a2))
     transformed_q_reps=T.tanh(T.dot(questions_reps, norm_W_a1))
-    #transformed_q_reps=T.repeat(transformed_q_reps, transformed_para_reps.shape[1], axis=1)    
-    
+    #transformed_q_reps=T.repeat(transformed_q_reps, transformed_para_reps.shape[1], axis=1)
+
     add_both=0.5*(transformed_para_reps+transformed_q_reps)
 
     prior_att=add_both
     combined_size=hidden_size
 
-    
+
     #prior_att=T.concatenate([transformed_para_reps, transformed_q_reps], axis=2)
     valid_indices=para_mask.flatten().nonzero()[0]
-    
+
     layer3=LogisticRegression(rng, input=prior_att.reshape((batch_size*prior_att.shape[1], combined_size)), n_in=combined_size, n_out=2, W=norm_U_a, b=LR_b)
     #error =layer3.negative_log_likelihood(labels.flatten()[valid_indices])
     error = -T.mean(T.log(layer3.p_y_given_x)[valid_indices, labels.flatten()[valid_indices]])#[T.arange(y.shape[0]), y])
 
     distributions=layer3.p_y_given_x[:,-1].reshape((batch_size, para_mask.shape[1]))
     #distributions=layer3.y_pred.reshape((batch_size, para_mask.shape[1]))
-    masked_dis=distributions*para_mask    
+    masked_dis=distributions*para_mask
     return  attention_paras, error, masked_dis
 
 def dropout_layer(state_before, use_noise, trng):
@@ -1793,16 +1813,16 @@ def load_model_from_file(file_path, params):
     #save_file = open('/mounts/data/proj/wenpeng/Dataset/WikiQACorpus/Best_Conv_Para')
     save_file = open(file_path)
 #     save_file = open('/mounts/data/proj/wenpeng/Dataset/WikiQACorpus/Best_Conv_Para_at_22')
-    
+
     for para in params:
         para.set_value(cPickle.load(save_file), borrow=True)
     print 'model loaded successfully'
-    save_file.close()    
+    save_file.close()
 def store_model_to_file(file_path, best_params):
     save_file = open(file_path, 'wb')  # this will overwrite current contents
     for para in best_params:
         cPickle.dump(para.get_value(borrow=True), save_file, -1)  # the -1 is for HIGHEST_PROTOCOL
-    save_file.close()    
+    save_file.close()
 
 class HiddenLayer_with_Para(object):
     def __init__(self, rng, input, n_in, n_out, W=None, b=None,
@@ -1814,9 +1834,9 @@ class HiddenLayer_with_Para(object):
 #                     size=(n_in, n_out)), dtype=theano.config.floatX)  # @UndefinedVariable
 #             if activation == theano.tensor.nnet.sigmoid:
 #                 W_values *= 4
-# 
+#
 #             W = theano.shared(value=W_values, name='W', borrow=True)
-# 
+#
 #         if b is None:
 #             b_values = numpy.zeros((n_out,), dtype=theano.config.floatX)  # @UndefinedVariable
 #             b = theano.shared(value=b_values, name='b', borrow=True)
@@ -1826,7 +1846,7 @@ class HiddenLayer_with_Para(object):
 
         lin_output = T.dot(input, self.W) + self.b
         self.output = (lin_output if activation is None
-                       else activation(lin_output))  
+                       else activation(lin_output))
 def Adam(cost, params, lr=0.001, b1=0.1, b2=0.001, e=1e-8):
     updates = []
     grads = T.grad(cost, params)
@@ -1899,7 +1919,7 @@ class rmsprop(object):
             updates.append((old_avg, new_avg))
             updates.append((memory, update))
             updates.append((param, param + update2))
-        return updates   
+        return updates
 
 def rescale_weights(params, incoming_max):
     incoming_max = np.cast[theano.config.floatX](incoming_max)
@@ -1908,9 +1928,9 @@ def rescale_weights(params, incoming_max):
         w_sum = (w**2).sum(axis=0)
         w[:, w_sum>incoming_max] = w[:, w_sum>incoming_max] * np.sqrt(incoming_max) / w_sum[w_sum>incoming_max]
         p.set_value(w)
-        
-        
-        
+
+
+
 class BNComposite(Composite):
     init_param = ('dtype',)
 
@@ -2051,9 +2071,9 @@ def log_sum_exp(x, axis=None):
     xmax_ = x.max(axis=axis)
     return xmax_ + T.log(T.exp(x - xmax).sum(axis=axis))
 
-def squad_cnn_rank_spans(rng, common_input_p, common_input_q, char_common_input_p, char_common_input_q,batch_size, p_len_limit,q_len_limit, 
-                         emb_size, char_emb_size,char_len,filter_size,char_filter_size,hidden_size, conv_W_1, conv_b_1,conv_W_2, conv_b_2,
-                         conv_W_char,conv_b_char,
+def squad_cnn_rank_spans(rng, common_input_p, common_input_q, char_common_input_p, char_common_input_q,batch_size, p_len_limit,q_len_limit,
+                         emb_size, char_emb_size,char_len,filter_size,char_filter_size,hidden_size,
+                         conv_W_1, conv_b_1,conv_W_2, conv_b_2, conv_W_1_q, conv_b_1_q,conv_W_2_q, conv_b_2_q, conv_W_char,conv_b_char,
                          para_mask, q_mask, char_p_masks,char_q_masks):
     conv_input_p_char = char_common_input_p.dimshuffle(0,'x',2,1)       #(batch_size, 1, emb_size, maxsenlen+width-1)
     conv_model_p_char = Conv_with_input_para(rng, input=conv_input_p_char,
@@ -2064,16 +2084,6 @@ def squad_cnn_rank_spans(rng, common_input_p, common_input_q, char_common_input_
     repeat_p_char_mask=(1.0-repeat_p_char_mask)*(repeat_p_char_mask-10)
     p_char_rep=T.max(conv_output_p_char_tensor3+repeat_p_char_mask, axis=2) #(batch_size*q_len, char_emb_size) # each sentence then have an embedding of length hidden_size
     p_word_char_reps = p_char_rep.reshape((batch_size, p_len_limit, char_emb_size)).dimshuffle(0,'x', 2,1)
-    #test
-#     test_conv_model_p_char = Conv_with_input_para(rng, input=conv_input_p_char,
-#              image_shape=(batch_size*test_p_len_limit, 1, char_emb_size, char_len),
-#              filter_shape=(char_emb_size, 1, char_emb_size, char_filter_size), W=conv_W_char, b=conv_b_char)
-#     test_conv_output_p_char_tensor3=test_conv_model_p_char.narrow_conv_out.reshape((batch_size*test_p_len_limit, char_emb_size, char_len-char_filter_size+1))
-#     test_repeat_p_char_mask=T.repeat(char_p_masks[:,char_filter_size-1:].reshape((batch_size*test_p_len_limit, 1, char_len-char_filter_size+1 )), char_emb_size, axis=1) #(batch_size, emb_size, maxSentLen-filter_size+1)
-#     test_repeat_p_char_mask=(1.0-test_repeat_p_char_mask)*(test_repeat_p_char_mask-10)
-#     test_p_char_rep=T.max(test_conv_output_p_char_tensor3+test_repeat_p_char_mask, axis=2) #(batch_size*q_len, char_emb_size) # each sentence then have an embedding of length hidden_size
-#     test_p_word_char_reps = test_p_char_rep.reshape((batch_size, test_p_len_limit, char_emb_size)).dimshuffle(0,'x',2,1)
-
 
     conv_input_q_char = char_common_input_q.dimshuffle(0,'x',2,1)       #(batch_size, 1, emb_size, maxsenlen+width-1)
     conv_model_q_char = Conv_with_input_para(rng, input=conv_input_q_char,
@@ -2093,25 +2103,18 @@ def squad_cnn_rank_spans(rng, common_input_p, common_input_q, char_common_input_
     conv_input_p_1 = T.concatenate([zero_pad_tensor4_1,
                 T.concatenate([common_input_p.dimshuffle((0,'x', 2,1)), p_word_char_reps], axis=2),
                 zero_pad_tensor4_1], axis=3)        #(batch_size, 1, emb_size, maxsenlen+width-1)
-#     test_conv_input_p_1 = T.concatenate([zero_pad_tensor4_1,
-#                 T.concatenate([common_input_p.dimshuffle((0,'x', 2,1)), test_p_word_char_reps], axis=2),
-#                 zero_pad_tensor4_1], axis=3)
+
     conv_model_p_1 = Conv_with_input_para(rng, input=conv_input_p_1,
              image_shape=(batch_size, 1, emb_size+char_emb_size, p_len_limit+filter_size[0]-1),
              filter_shape=(hidden_size, 1, emb_size+char_emb_size, filter_size[0]), W=conv_W_1, b=conv_b_1)
     conv_output_p_1=conv_model_p_1.narrow_conv_out*para_mask.dimshuffle(0,'x','x',1) #(batch, 1, hidden_size, maxsenlen)
-    #test
-#     test_conv_model_p_1 = Conv_with_input_para(rng, input=test_conv_input_p_1,
-#              image_shape=(batch_size, 1, emb_size+char_emb_size, test_p_len_limit+filter_size[0]-1),
-#              filter_shape=(hidden_size, 1, emb_size+char_emb_size, filter_size[0]), W=conv_W_1, b=conv_b_1)
-#     test_conv_output_p_1=test_conv_model_p_1.narrow_conv_out*para_mask.dimshuffle(0,'x','x',1) #(batch, 1, hidden_size, maxsenlen)
 
     conv_input_q_1 = T.concatenate([zero_pad_tensor4_1,
                         T.concatenate([common_input_q.dimshuffle((0,'x', 2,1)), q_word_char_reps], axis=2),
                         zero_pad_tensor4_1], axis=3)        #(batch_size, 1, emb_size, maxsenlen+width-1)
     conv_model_q_1 = Conv_with_input_para(rng, input=conv_input_q_1,
              image_shape=(batch_size, 1, emb_size+char_emb_size, q_len_limit+filter_size[0]-1),
-             filter_shape=(hidden_size, 1, emb_size+char_emb_size, filter_size[0]), W=conv_W_1, b=conv_b_1)
+             filter_shape=(hidden_size, 1, emb_size+char_emb_size, filter_size[0]), W=conv_W_1_q, b=conv_b_1_q)
     conv_output_q_1=conv_model_q_1.narrow_conv_out*q_mask.dimshuffle(0,'x','x',1) #(batch, 1, hidden_size, maxsenlen)
 
     #the second layer
@@ -2122,19 +2125,11 @@ def squad_cnn_rank_spans(rng, common_input_p, common_input_q, char_common_input_
              filter_shape=(hidden_size, 1, hidden_size, filter_size[1]), W=conv_W_2, b=conv_b_2)
     conv_output_p_tensor3=conv_model_p_2.narrow_conv_out.reshape((batch_size, hidden_size, p_len_limit))
     conv_output_p_tensor3=conv_output_p_tensor3*para_mask.dimshuffle(0,'x',1) #(batch, hidden_size, maxsenlen)
-    #test
-#     test_conv_input_p_2 = T.concatenate([zero_pad_tensor4_2, test_conv_output_p_1, zero_pad_tensor4_2], axis=3)        #(batch_size, 1, emb_size, maxsenlen+width-1)
-#     test_conv_model_p_2 = Conv_with_input_para(rng, input=test_conv_input_p_2,
-#           image_shape=(batch_size, 1, hidden_size, test_p_len_limit+filter_size[1]-1),
-#           filter_shape=(hidden_size, 1, hidden_size, filter_size[1]), W=conv_W_2, b=conv_b_2)
-#     test_conv_output_p_tensor3=test_conv_model_p_2.narrow_conv_out.reshape((batch_size, hidden_size, true_p_len))
-#     test_conv_output_p_tensor3=test_conv_output_p_tensor3*para_mask.dimshuffle(0,'x',1) #(batch, hidden_size, maxsenlen)
-
 
     conv_input_q_2 = T.concatenate([zero_pad_tensor4_2, conv_output_q_1, zero_pad_tensor4_2], axis=3)        #(batch_size, 1, emb_size, maxsenlen+width-1)
     conv_model_q_2 = Conv_with_input_para(rng, input=conv_input_q_2,
              image_shape=(batch_size, 1, hidden_size, q_len_limit+filter_size[1]-1),
-             filter_shape=(hidden_size, 1, hidden_size, filter_size[1]), W=conv_W_2, b=conv_b_2)
+             filter_shape=(hidden_size, 1, hidden_size, filter_size[1]), W=conv_W_2_q, b=conv_b_2_q)
     conv_output_q_tensor3=conv_model_q_2.narrow_conv_out.reshape((batch_size, hidden_size, q_len_limit))
 
     repeat_q_mask=T.repeat(q_mask.reshape((batch_size, 1, q_len_limit)), hidden_size, axis=1) #(batch_size, emb_size, maxSentLen-filter_size+1)
@@ -2152,15 +2147,90 @@ def squad_cnn_rank_spans(rng, common_input_p, common_input_q, char_common_input_
     span_reps=T.concatenate([gram_1, gram_2,gram_3,gram_4,gram_5], axis=1).reshape((batch_size, hidden_size, gram_size)) #(batch, hidden_size, maxsenlen-(0+1+2+3+4))
     input4score = T.concatenate([span_reps, T.repeat(q_rep.dimshuffle(0,1,'x'), gram_size, axis=2)], axis=1) #(batch, 2*hidden, 5*p_len_limit-(0+1+2+3+4))
 
-    #test
-#     test_p2loop_matrix = test_conv_output_p_tensor3.reshape((test_conv_output_p_tensor3.shape[0]*test_conv_output_p_tensor3.shape[1], test_conv_output_p_tensor3.shape[2]))#(batch* hidden_size, maxsenlen)
-#     test_gram_1 = test_p2loop_matrix
-#     test_gram_2 = T.max(T.concatenate([test_p2loop_matrix[:,:-1].dimshuffle('x',0,1), test_p2loop_matrix[:,1:].dimshuffle('x',0,1)], axis=0), axis=0) #(batch* hidden_size, maxsenlen-1)
-#     test_gram_3 = T.max(T.concatenate([test_p2loop_matrix[:,:-2].dimshuffle('x',0,1), test_p2loop_matrix[:,1:-1].dimshuffle('x',0,1),test_p2loop_matrix[:,2:].dimshuffle('x',0,1)], axis=0), axis=0) #(batch* hidden_size, maxsenlen-2)
-#     test_gram_4 = T.max(T.concatenate([test_p2loop_matrix[:,:-3].dimshuffle('x',0,1), test_p2loop_matrix[:,1:-2].dimshuffle('x',0,1),test_p2loop_matrix[:,2:-1].dimshuffle('x',0,1),test_p2loop_matrix[:,3:].dimshuffle('x',0,1)], axis=0), axis=0) #(batch* hidden_size, maxsenlen-3)
-#     test_gram_5 = T.max(T.concatenate([test_p2loop_matrix[:,:-4].dimshuffle('x',0,1), test_p2loop_matrix[:,1:-3].dimshuffle('x',0,1),test_p2loop_matrix[:,2:-2].dimshuffle('x',0,1),test_p2loop_matrix[:,3:-1].dimshuffle('x',0,1),test_p2loop_matrix[:,4:].dimshuffle('x',0,1)], axis=0), axis=0) #(batch* hidden_size, maxsenlen-4)
-#     test_gram_size = 5*true_p_len-(0+1+2+3+4)
-#     test_span_reps=T.concatenate([test_gram_1, test_gram_2,test_gram_3,test_gram_4,test_gram_5], axis=1).reshape((batch_size, hidden_size, test_gram_size)) #(batch, hidden_size, maxsenlen-(0+1+2+3+4))
-#     test_input4score = T.concatenate([test_span_reps, T.repeat(q_rep.dimshuffle(0,1,'x'), test_gram_size, axis=2)], axis=1) #(batch, 2*hidden, 5*p_len_limit-(0+1+2+3+4))
     return input4score
 
+def squad_cnn_rank_word(rng, common_input_p, common_input_q, char_common_input_p, char_common_input_q,batch_size, p_len_limit,q_len_limit,
+                         emb_size, char_emb_size,char_len,filter_size,char_filter_size,hidden_size,
+                         conv_W_1, conv_b_1,conv_W_2, conv_b_2, conv_W_1_q, conv_b_1_q,conv_W_2_q, conv_b_2_q, conv_W_char,conv_b_char,
+                         para_mask, q_mask, char_p_masks,char_q_masks):
+    conv_input_p_char = char_common_input_p.dimshuffle(0,2,1)       #(batch_size, emb_size, maxsenlen)
+    conv_model_p_char = Conv_with_Mask(rng, input_tensor3=conv_input_p_char,
+             mask_matrix = char_p_masks,
+             image_shape=(batch_size*p_len_limit, 1, char_emb_size, char_len),
+             filter_shape=(char_emb_size, 1, char_emb_size, char_filter_size), W=conv_W_char, b=conv_b_char)
+    # conv_output_p_char_tensor3=conv_model_p_char.narrow_conv_out.reshape((batch_size*p_len_limit, char_emb_size, char_len-char_filter_size+1))
+    # repeat_p_char_mask=T.repeat(char_p_masks[:,char_filter_size-1:].reshape((batch_size*p_len_limit, 1, char_len-char_filter_size+1 )), char_emb_size, axis=1) #(batch_size, emb_size, maxSentLen-filter_size+1)
+    # repeat_p_char_mask=(1.0-repeat_p_char_mask)*(repeat_p_char_mask-10)
+    # p_char_rep=T.max(conv_output_p_char_tensor3+repeat_p_char_mask, axis=2) #(batch_size*q_len, char_emb_size) # each sentence then have an embedding of length hidden_size
+    p_word_char_reps = conv_model_p_char.maxpool_vec.reshape((batch_size, p_len_limit, char_emb_size)).dimshuffle(0,2,1) #(batch_size, char_emb_size,*q_len)
+
+    conv_input_q_char = char_common_input_q.dimshuffle(0,2,1)       #(batch_size, 1, emb_size, maxsenlen+width-1)
+    conv_model_q_char = Conv_with_Mask(rng, input_tensor3=conv_input_q_char,
+             mask_matrix = char_q_masks,
+             image_shape=(batch_size*q_len_limit, 1, char_emb_size, char_len),
+             filter_shape=(char_emb_size, 1, char_emb_size, char_filter_size), W=conv_W_char, b=conv_b_char)
+    # conv_output_q_char_tensor3=conv_model_q_char.narrow_conv_out.reshape((batch_size*q_len_limit, char_emb_size, char_len-char_filter_size+1))
+    # repeat_q_char_mask=T.repeat(char_q_masks[:,char_filter_size-1:].reshape((batch_size*q_len_limit, 1, char_len-char_filter_size+1 )), char_emb_size, axis=1) #(batch_size, emb_size, maxSentLen-filter_size+1)
+    # repeat_q_char_mask=(1.0-repeat_q_char_mask)*(repeat_q_char_mask-10)
+    # q_char_rep=T.max(conv_output_q_char_tensor3+repeat_q_char_mask, axis=2) #(batch_size*q_len, char_emb_size) # each sentence then have an embedding of length hidden_size
+    q_word_char_reps = conv_model_q_char.maxpool_vec.reshape((batch_size, q_len_limit, char_emb_size)).dimshuffle(0,2,1) #(batch_size, char_emb_size,*q_len)
+
+
+    # zero_pad_tensor4_1 = T.zeros((batch_size, 1, emb_size+char_emb_size, filter_size[0]/2), dtype=theano.config.floatX)+1e-8  # to get rid of nan in CNN gradient
+
+
+
+    conv_input_p_1 = T.concatenate([common_input_p.dimshuffle((0,2,1)), p_word_char_reps], axis=1)
+
+    conv_model_p_1 = Conv_with_Mask(rng, input_tensor3=conv_input_p_1,
+             mask_matrix = para_mask,
+             image_shape=(batch_size, 1, emb_size+char_emb_size, p_len_limit),
+             filter_shape=(hidden_size, 1, emb_size+char_emb_size, filter_size[0]), W=conv_W_1, b=conv_b_1)
+    conv_output_p_1=conv_model_p_1.masked_conv_out #(batch, hidden, len)
+
+    conv_input_q_1 = T.concatenate([common_input_q.dimshuffle((0,2,1)), q_word_char_reps], axis=1)
+    conv_model_q_1 = Conv_with_Mask(rng, input_tensor3=conv_input_q_1,
+             mask_matrix = q_mask,
+             image_shape=(batch_size, 1, emb_size+char_emb_size, q_len_limit),
+             filter_shape=(hidden_size, 1, emb_size+char_emb_size, filter_size[0]), W=conv_W_1_q, b=conv_b_1_q)
+    conv_output_q_1=conv_model_q_1.masked_conv_out #(batch, 1, hidden_size, maxsenlen)
+
+    #the second layer
+    conv_model_p_2 = Conv_with_Mask(rng, input_tensor3=conv_output_p_1,
+             mask_matrix = para_mask,
+             image_shape=(batch_size, 1, hidden_size, p_len_limit),
+             filter_shape=(hidden_size, 1, hidden_size, filter_size[1]), W=conv_W_2, b=conv_b_2)
+    conv_output_p_tensor3=conv_model_p_2.masked_conv_out
+
+    conv_model_q_2 = Conv_with_Mask(rng, input_tensor3=conv_output_q_1,
+             mask_matrix = q_mask,
+             image_shape=(batch_size, 1, hidden_size, q_len_limit),
+             filter_shape=(hidden_size, 1, hidden_size, filter_size[1]), W=conv_W_2_q, b=conv_b_2_q)
+    # conv_output_q_tensor3=conv_model_q_2.masked_conv_out
+
+    # repeat_q_mask=T.repeat(q_mask.reshape((batch_size, 1, q_len_limit)), hidden_size, axis=1) #(batch_size, emb_size, maxSentLen-filter_size+1)
+    # repeat_q_mask=(1.0-repeat_q_mask)*(repeat_q_mask-10)
+    q_rep=conv_model_q_2.maxpool_vec #(batch_size, hidden_size) # each sentence then have an embedding of length hidden_size
+
+
+    # p2loop_matrix = conv_output_p_tensor3.reshape((conv_output_p_tensor3.shape[0]*conv_output_p_tensor3.shape[1], conv_output_p_tensor3.shape[2]))#(batch* hidden_size, maxsenlen)
+    # gram_1 = p2loop_matrix
+    # gram_2 = T.max(T.concatenate([p2loop_matrix[:,:-1].dimshuffle('x',0,1), p2loop_matrix[:,1:].dimshuffle('x',0,1)], axis=0), axis=0) #(batch* hidden_size, maxsenlen-1)
+    # gram_3 = T.max(T.concatenate([p2loop_matrix[:,:-2].dimshuffle('x',0,1), p2loop_matrix[:,1:-1].dimshuffle('x',0,1),p2loop_matrix[:,2:].dimshuffle('x',0,1)], axis=0), axis=0) #(batch* hidden_size, maxsenlen-2)
+    # gram_4 = T.max(T.concatenate([p2loop_matrix[:,:-3].dimshuffle('x',0,1), p2loop_matrix[:,1:-2].dimshuffle('x',0,1),p2loop_matrix[:,2:-1].dimshuffle('x',0,1),p2loop_matrix[:,3:].dimshuffle('x',0,1)], axis=0), axis=0) #(batch* hidden_size, maxsenlen-3)
+    # gram_5 = T.max(T.concatenate([p2loop_matrix[:,:-4].dimshuffle('x',0,1), p2loop_matrix[:,1:-3].dimshuffle('x',0,1),p2loop_matrix[:,2:-2].dimshuffle('x',0,1),p2loop_matrix[:,3:-1].dimshuffle('x',0,1),p2loop_matrix[:,4:].dimshuffle('x',0,1)], axis=0), axis=0) #(batch* hidden_size, maxsenlen-4)
+    # gram_size = 5*p_len_limit-(0+1+2+3+4)
+    # span_reps=T.concatenate([gram_1, gram_2,gram_3,gram_4,gram_5], axis=1).reshape((batch_size, hidden_size, gram_size)) #(batch, hidden_size, maxsenlen-(0+1+2+3+4))
+    input4score = T.concatenate([conv_output_p_tensor3, T.repeat(q_rep.dimshuffle(0,1,'x'), p_len_limit, axis=2)], axis=1) #(batch, 2*hidden, p_len_limit)
+
+    return input4score*para_mask.dimshuffle(0,'x',1)
+
+def add_HLs_2_tensor3(input4score, HL_1_para,HL_2_para,HL_3_para,HL_4_para,norm_U_a, batch_size,true_p_len):
+
+    HL_1_output = T.tanh(T.dot(input4score.dimshuffle(0,2,1), HL_1_para)) #(batch, p_len, hidden_size)
+    HL_2_output = T.tanh(T.dot(HL_1_output, HL_2_para))
+    HL_3_output = T.tanh(T.dot(HL_2_output+HL_1_output, HL_3_para))
+    HL_4_output = T.tanh(T.dot(HL_3_output+HL_2_output+HL_1_output, HL_4_para))
+
+    span_scores_matrix=T.dot(HL_4_output+HL_3_output+HL_2_output+HL_1_output, norm_U_a).reshape((batch_size, true_p_len))  #(batch, 13*para_len-78, 1)
+    return span_scores_matrix #(batch, para_len)
