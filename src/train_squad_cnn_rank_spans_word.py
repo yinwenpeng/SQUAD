@@ -38,8 +38,8 @@ import json
 '''
 
 def evaluate_lenet5(learning_rate=0.01, n_epochs=3, batch_size=100, emb_size=300, char_emb_size=20, hidden_size=300,
-                    L2_weight=0.0001, p_len_limit=400, test_p_len_limit=40, q_len_limit=20, char_len=15, filter_size = [5,5],
-                    char_filter_size=3, margin=0.85, max_EM=50.302743615):
+                    L2_weight=0.0001, p_len_limit=400, test_p_len_limit=100, q_len_limit=20, char_len=15, filter_size = [5,5],
+                    char_filter_size=5, margin=0.85, max_EM=50.302743615):
     test_batch_size=batch_size*10
     model_options = locals().copy()
     print "model options", model_options
@@ -158,7 +158,7 @@ def evaluate_lenet5(learning_rate=0.01, n_epochs=3, batch_size=100, emb_size=300
     loss_neg_likelihood=-T.mean(T.log(span_scores[T.arange(batch_size), span_indices]))
 
     #ranking loss
-    tanh_span_scores_matrix = T.tanh(span_scores_matrix) #(batch, gram_size)
+    tanh_span_scores_matrix = span_scores#T.tanh(span_scores_matrix) #(batch, gram_size)
 
     index_matrix = T.zeros((batch_size, gram_size), dtype=theano.config.floatX)
     new_index_matrix = T.set_subtensor(index_matrix[T.arange(batch_size), span_indices], 1.0)
@@ -352,7 +352,7 @@ def evaluate_lenet5(learning_rate=0.01, n_epochs=3, batch_size=100, emb_size=300
 
 
             #print iter
-            if iter%50==0:
+            if iter%100==0:
                 print 'Epoch ', epoch, 'iter '+str(iter)+' average cost: '+str(cost_i/iter), 'uses ', (time.time()-past_time)/60.0, 'min'
                 print 'Testing...'
                 past_time = time.time()
