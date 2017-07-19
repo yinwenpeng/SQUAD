@@ -18,9 +18,9 @@ from WPDefined import ConvFoldPoolLayer, dropout_from_layer, shared_dataset, rep
 from cis.deep.utils.theano import debug_print
 from theano.tensor.signal import downsample
 from theano.tensor.nnet import conv
-from load_SQUAD import load_squad_cnn_rank_span_train, load_glove, decode_predict_id, load_squad_cnn_rank_span_dev, extract_ansList_attentionList, extract_ansList_attentionList_maxlen5, MacroF1, load_word2vec, load_word2vec_to_init
+from load_SQUAD import load_squad_cnn_rank_span_word_train, load_glove, decode_predict_id, load_squad_cnn_rank_span_word_dev, extract_ansList_attentionList, extract_ansList_attentionList_maxlen5, MacroF1, load_word2vec, load_word2vec_to_init
 from word2embeddings.nn.util import zero_value, random_value_normal
-from common_functions import squad_cnn_rank_spans,Adam, load_model_from_file, store_model_to_file, create_LSTM_para, Bd_LSTM_Batch_Tensor_Input_with_Mask, Bd_GRU_Batch_Tensor_Input_with_Mask, create_ensemble_para, create_GRU_para, normalize_matrix, create_conv_para, Matrix_Bit_Shift, Conv_with_input_para, L2norm_paraList
+from common_functions import squad_cnn_rank_spans_word,add_HLs_2_tensor3, load_model_from_file, store_model_to_file, create_LSTM_para, Bd_LSTM_Batch_Tensor_Input_with_Mask, Bd_GRU_Batch_Tensor_Input_with_Mask, create_ensemble_para, create_GRU_para, normalize_matrix, create_conv_para, Matrix_Bit_Shift, Conv_with_input_para, L2norm_paraList
 from random import shuffle
 from gru import BdGRU, GRULayer
 from utils_pg import *
@@ -50,10 +50,10 @@ def evaluate_lenet5(learning_rate=0.01, n_epochs=3, batch_size=100, emb_size=300
     word2id={}
     char2id={}
     #questions,paragraphs,q_masks,p_masks,labels, word2id
-    train_Q_list,train_para_list, train_Q_mask, train_para_mask, train_Q_char_list,train_para_char_list, train_Q_char_mask, train_para_char_mask, train_label_list, word2id, char2id=load_squad_cnn_rank_span_train(word2id, char2id, p_len_limit, q_len_limit, char_len)
+    train_Q_list,train_para_list, train_Q_mask, train_para_mask, train_Q_char_list,train_para_char_list, train_Q_char_mask, train_para_char_mask, train_span_label_list, train_word_label_list, word2id, char2id=load_squad_cnn_rank_span_word_train(word2id, char2id, p_len_limit, q_len_limit, char_len)
     train_size=len(train_para_list)
 
-    test_Q_list, test_para_list,  test_Q_mask, test_para_mask,test_Q_char_list, test_para_char_list,  test_Q_char_mask, test_para_char_mask, q_idlist, word2id, char2id, test_para_wordlist_list= load_squad_cnn_rank_span_dev(word2id, char2id, test_p_len_limit, q_len_limit, char_len)
+    test_Q_list, test_para_list,  test_Q_mask, test_para_mask,test_Q_char_list, test_para_char_list,  test_Q_char_mask, test_para_char_mask, q_idlist, word2id, char2id, test_para_wordlist_list= load_squad_cnn_rank_span_word_dev(word2id, char2id, test_p_len_limit, q_len_limit, char_len)
     test_size=len(test_para_list)
 
     train_Q_list = numpy.asarray(train_Q_list, dtype='int32')
@@ -66,7 +66,8 @@ def evaluate_lenet5(learning_rate=0.01, n_epochs=3, batch_size=100, emb_size=300
     train_Q_char_mask = numpy.asarray(train_Q_char_mask, dtype=theano.config.floatX)
     train_para_char_mask = numpy.asarray(train_para_char_mask, dtype=theano.config.floatX)
 
-    train_label_list = numpy.asarray(train_label_list, dtype='int32')
+    train_span_label_list = numpy.asarray(train_span_label_list, dtype='int32')
+    train_word_label_list = numpy.asarray(train_word_label_list, dtype='int32')
 
     test_Q_list = numpy.asarray(test_Q_list, dtype='int32')
     test_para_list = numpy.asarray(test_para_list, dtype='int32')
@@ -99,7 +100,8 @@ def evaluate_lenet5(learning_rate=0.01, n_epochs=3, batch_size=100, emb_size=300
 #     index = T.lscalar()
     paragraph = T.imatrix('paragraph')
     questions = T.imatrix('questions')
-    gold_indices= T.ivector() #batch
+    span_indices= T.ivector() #batch
+    word_indices = T.imatrix() #(batch, 2)
     para_mask=T.fmatrix('para_mask')
     q_mask=T.fmatrix('q_mask')
 
@@ -137,12 +139,12 @@ def evaluate_lenet5(learning_rate=0.01, n_epochs=3, batch_size=100, emb_size=300
     conv_W_2_q, conv_b_2_q=create_conv_para(rng, filter_shape=(hidden_size, 1, hidden_size, filter_size[1]))
     NN_para=[conv_W_1, conv_b_1,conv_W_2, conv_b_2,conv_W_1_q, conv_b_1_q, conv_W_2_q, conv_b_2_q, conv_W_char, conv_b_char]
     
-    input4score = squad_cnn_rank_spans(rng, common_input_p, common_input_q, char_common_input_p, char_common_input_q,batch_size, p_len_limit,q_len_limit, 
+    span_input4score, word_input4score = squad_cnn_rank_spans_word(rng, common_input_p, common_input_q, char_common_input_p, char_common_input_q,batch_size, p_len_limit,q_len_limit, 
                          emb_size, char_emb_size,char_len,filter_size,char_filter_size,hidden_size, 
                          conv_W_1, conv_b_1,conv_W_2, conv_b_2,conv_W_1_q, conv_b_1_q, conv_W_2_q, conv_b_2_q,conv_W_char,conv_b_char,
                          para_mask, q_mask, char_p_masks,char_q_masks)
 
-    test_input4score = squad_cnn_rank_spans(rng, common_input_p, common_input_q, char_common_input_p, char_common_input_q,test_batch_size, test_p_len_limit,q_len_limit, 
+    test_span_input4score, test_word_input4score = squad_cnn_rank_spans_word(rng, common_input_p, common_input_q, char_common_input_p, char_common_input_q,test_batch_size, test_p_len_limit,q_len_limit, 
                          emb_size, char_emb_size,char_len,filter_size,char_filter_size,hidden_size, 
                          conv_W_1, conv_b_1,conv_W_2, conv_b_2, conv_W_1_q, conv_b_1_q, conv_W_2_q, conv_b_2_q,conv_W_char,conv_b_char,
                          para_mask, q_mask, char_p_masks,char_q_masks)  #(batch, hidden, gram_size)
@@ -151,15 +153,15 @@ def evaluate_lenet5(learning_rate=0.01, n_epochs=3, batch_size=100, emb_size=300
     
     U_a = create_ensemble_para(rng, 1, 2*hidden_size)
     norm_U_a=normalize_matrix(U_a)
-    span_scores_matrix=T.dot(input4score.dimshuffle(0,2,1), norm_U_a).reshape((batch_size, gram_size))  #(batch, 13*para_len-78, 1)
+    span_scores_matrix=T.dot(span_input4score.dimshuffle(0,2,1), norm_U_a).reshape((batch_size, gram_size))  #(batch, 13*para_len-78, 1)
     span_scores=T.nnet.softmax(span_scores_matrix) #(batch, 7*para_len-21)
-    loss_neg_likelihood=-T.mean(T.log(span_scores[T.arange(batch_size), gold_indices]))
+    loss_neg_likelihood=-T.mean(T.log(span_scores[T.arange(batch_size), span_indices]))
 
     #ranking loss
     tanh_span_scores_matrix = T.tanh(span_scores_matrix) #(batch, gram_size)
 
     index_matrix = T.zeros((batch_size, gram_size), dtype=theano.config.floatX)
-    new_index_matrix = T.set_subtensor(index_matrix[T.arange(batch_size), gold_indices], 1.0)
+    new_index_matrix = T.set_subtensor(index_matrix[T.arange(batch_size), span_indices], 1.0)
 
 
     prob_batch_posi = tanh_span_scores_matrix[new_index_matrix.nonzero()]
@@ -169,17 +171,96 @@ def evaluate_lenet5(learning_rate=0.01, n_epochs=3, batch_size=100, emb_size=300
     repeat_nega = T.extra_ops.repeat(prob_batch_nega.dimshuffle('x',0), prob_batch_posi.shape[0], axis=0).flatten()
     loss_rank = T.mean(T.maximum(0.0, margin-repeat_posi+repeat_nega))
 
-    loss = loss_neg_likelihood + loss_rank
+    span_loss = loss_neg_likelihood + loss_rank
     
-    test_span_scores_matrix=T.dot(test_input4score.dimshuffle(0,2,1), norm_U_a).reshape((true_batch_size, gram_size))  #(batch, 13*para_len-78, 1)
-    test_return=T.argmax(test_span_scores_matrix, axis=1) #batch
+    test_span_scores_matrix=T.dot(test_span_input4score.dimshuffle(0,2,1), norm_U_a).reshape((true_batch_size, gram_size))  #(batch, 13*para_len-78)
 
 
-    params = [embeddings,char_embeddings]+NN_para+[U_a]
+
+    #word
+    HL_1_para = create_ensemble_para(rng, hidden_size, 2*hidden_size)
+    HL_2_para = create_ensemble_para(rng, hidden_size, hidden_size)
+    HL_3_para = create_ensemble_para(rng, hidden_size, hidden_size)
+    HL_4_para = create_ensemble_para(rng, hidden_size, hidden_size)
+    start_U_a = create_ensemble_para(rng, 1, hidden_size)
+    norm_start_U_a=normalize_matrix(start_U_a)
+    norm_HL_1_para=normalize_matrix(HL_1_para)
+    norm_HL_2_para=normalize_matrix(HL_2_para)
+    norm_HL_3_para=normalize_matrix(HL_3_para)
+    norm_HL_4_para=normalize_matrix(HL_4_para)
+
+    end_HL_1_para = create_ensemble_para(rng, hidden_size, 2*hidden_size)
+    end_HL_2_para = create_ensemble_para(rng, hidden_size, hidden_size)
+    end_HL_3_para = create_ensemble_para(rng, hidden_size, hidden_size)
+    end_HL_4_para = create_ensemble_para(rng, hidden_size, hidden_size)
+    end_U_a = create_ensemble_para(rng, 1, hidden_size)
+    end_norm_U_a=normalize_matrix(end_U_a)
+    end_norm_HL_1_para=normalize_matrix(end_HL_1_para)
+    end_norm_HL_2_para=normalize_matrix(end_HL_2_para)
+    end_norm_HL_3_para=normalize_matrix(end_HL_3_para)
+    end_norm_HL_4_para=normalize_matrix(end_HL_4_para)
+
+    start_scores_matrix = add_HLs_2_tensor3(word_input4score, norm_HL_1_para,norm_HL_2_para,norm_HL_3_para,norm_HL_4_para, norm_start_U_a, batch_size,true_p_len)
+    start_scores=T.nnet.softmax(start_scores_matrix) #(batch, para_len)
+    end_scores_matrix = add_HLs_2_tensor3(word_input4score, end_norm_HL_1_para,end_norm_HL_2_para,end_norm_HL_3_para,end_norm_HL_4_para, end_norm_U_a, batch_size,true_p_len)
+    end_scores=T.nnet.softmax(end_scores_matrix) #(batch, para_len)
+    start_loss_neg_likelihood=-T.mean(T.log(start_scores[T.arange(batch_size), word_indices[:,0]]))
+    end_loss_neg_likelihood=-T.mean(T.log(end_scores[T.arange(batch_size), word_indices[:,1]]))
+
+    #ranking loss start
+    tanh_start_scores_matrix = start_scores#T.tanh(span_scores_matrix) #(batch, gram_size)
+    start_index_matrix = T.zeros((batch_size, p_len_limit), dtype=theano.config.floatX)
+    start_new_index_matrix = T.set_subtensor(start_index_matrix[T.arange(batch_size), word_indices[:,0]], 1.0)
+    start_prob_batch_posi = tanh_start_scores_matrix[start_new_index_matrix.nonzero()]
+    start_prob_batch_nega = tanh_start_scores_matrix[(1.0-start_new_index_matrix).nonzero()]
+    start_repeat_posi = T.extra_ops.repeat(start_prob_batch_posi, start_prob_batch_nega.shape[0], axis=0)
+    start_repeat_nega = T.extra_ops.repeat(start_prob_batch_nega.dimshuffle('x',0), start_prob_batch_posi.shape[0], axis=0).flatten()
+    start_loss_rank = T.mean(T.maximum(0.0, margin-start_repeat_posi+start_repeat_nega))
+
+    #ranking loss END
+    end_tanh_scores_matrix = end_scores#T.tanh(span_scores_matrix) #(batch, gram_size)
+    end_index_matrix = T.zeros((batch_size, p_len_limit), dtype=theano.config.floatX)
+    end_new_index_matrix = T.set_subtensor(end_index_matrix[T.arange(batch_size), word_indices[:,1]], 1.0)
+    end_prob_batch_posi = end_tanh_scores_matrix[end_new_index_matrix.nonzero()]
+    end_prob_batch_nega = end_tanh_scores_matrix[(1.0-end_new_index_matrix).nonzero()]
+    end_repeat_posi = T.extra_ops.repeat(end_prob_batch_posi, end_prob_batch_nega.shape[0], axis=0)
+    end_repeat_nega = T.extra_ops.repeat(end_prob_batch_nega.dimshuffle('x',0), end_prob_batch_posi.shape[0], axis=0).flatten()
+    end_loss_rank = T.mean(T.maximum(0.0, margin-end_repeat_posi+end_repeat_nega))
+
+
+
+
+
+
+    word_loss = start_loss_neg_likelihood +end_loss_neg_likelihood+start_loss_rank+end_loss_rank
+
+    #test
+    test_start_scores_matrix = add_HLs_2_tensor3(test_word_input4score, norm_HL_1_para,norm_HL_2_para,norm_HL_3_para,norm_HL_4_para,norm_start_U_a, true_batch_size,true_p_len) #(batch, test_p_len)
+    mask_test_start_return=test_start_scores_matrix*para_mask #(batch, p_len)
+
+    end_test_scores_matrix = add_HLs_2_tensor3(test_word_input4score, end_norm_HL_1_para,end_norm_HL_2_para,end_norm_HL_3_para,end_norm_HL_4_para,end_norm_U_a, true_batch_size,true_p_len) #(batch, test_p_len)
+    end_mask_test_return=end_test_scores_matrix*para_mask  #(batch, p_len)
+
+    #combine start and end as span boundary score
+#     p2loop_matrix = conv_output_p_tensor3.reshape((conv_output_p_tensor3.shape[0]*conv_output_p_tensor3.shape[1], conv_output_p_tensor3.shape[2]))#(batch* hidden_size, maxsenlen)
+    word_gram_1 = mask_test_start_return+end_mask_test_return
+    word_gram_2 = mask_test_start_return[:,:-1]+end_mask_test_return[:,1:] #(batch* hidden_size, maxsenlen-1)
+    word_gram_3 = mask_test_start_return[:,:-2]+end_mask_test_return[:,2:] #(batch* hidden_size, maxsenlen-2)
+    word_gram_4 = mask_test_start_return[:,:-3]+end_mask_test_return[:,3:] #(batch* hidden_size, maxsenlen-3)
+    word_gram_5 = mask_test_start_return[:,:-4]+end_mask_test_return[:,4:] #(batch* hidden_size, maxsenlen-4)
+#     gram_size = 5*p_len_limit-(0+1+2+3+4)
+    word_pair_scores=T.concatenate([word_gram_1, word_gram_2,word_gram_3,word_gram_4,word_gram_5], axis=1)#(batch_size, gram_size)
+    
+    
+    test_span_word_scores_matrix=test_span_scores_matrix+word_pair_scores
+    test_return=T.argmax(test_span_word_scores_matrix, axis=1) #batch
+
+#     params = [embeddings,char_embeddings]+NN_para+[U_a]
+    params = [embeddings,char_embeddings]+NN_para+[U_a]+[start_U_a, HL_1_para,HL_2_para,HL_3_para,HL_4_para]+[end_U_a,end_HL_1_para,end_HL_2_para,end_HL_3_para,end_HL_4_para]
 
 #     L2_reg =L2norm_paraList([embeddings,U1, W1, U1_b, W1_b,UQ, WQ , UQ_b, WQ_b, W_a1, W_a2, U_a])
     #L2_reg = L2norm_paraList(params)
-    cost=loss#+ConvGRU_1.error#
+    cost=span_loss+word_loss#+ConvGRU_1.error#
 
 
     accumulator=[]
@@ -199,7 +280,7 @@ def evaluate_lenet5(learning_rate=0.01, n_epochs=3, batch_size=100, emb_size=300
 
 #     updates=Adam(cost, params, lr=0.0001)
 
-    train_model = theano.function([paragraph, questions,gold_indices, para_mask, q_mask,    char_paragraph, #(batch, char_len*p_len)
+    train_model = theano.function([paragraph, questions,span_indices, word_indices,para_mask, q_mask,    char_paragraph, #(batch, char_len*p_len)
         char_questions, char_para_mask, char_q_mask, true_p_len], cost, updates=updates,on_unused_input='ignore')
 
     test_model = theano.function([paragraph, questions,para_mask, q_mask,
@@ -259,7 +340,8 @@ def evaluate_lenet5(learning_rate=0.01, n_epochs=3, batch_size=100, emb_size=300
             cost_i+= train_model(
                                  train_para_list[train_id_batch],
                                  train_Q_list[train_id_batch],
-                                 train_label_list[train_id_batch],
+                                 train_span_label_list[train_id_batch],
+                                 train_word_label_list[train_id_batch],
                                  train_para_mask[train_id_batch],
                                  train_Q_mask[train_id_batch],
                                  train_para_char_list[train_id_batch],

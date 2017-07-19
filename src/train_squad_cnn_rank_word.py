@@ -286,10 +286,11 @@ def evaluate_lenet5(learning_rate=0.01, n_epochs=2000, batch_size=100, emb_size=
     max_exact_acc=0.0
     cost_i=0.0
     train_ids = range(train_size)
+
     while (epoch < n_epochs) and (not done_looping):
         epoch = epoch + 1
 
-#         random.shuffle(train_ids)
+        random.shuffle(train_ids)
         iter_accu=0
         for para_id in train_batch_start:
             # iter means how many batches have been runed, taking into loop
@@ -336,7 +337,7 @@ def evaluate_lenet5(learning_rate=0.01, n_epochs=2000, batch_size=100, emb_size=
 
                     for q in range(test_batch_size): #for each question
 #                         pred_ans=decode_predict_id(batch_predict_ids[q], test_para_wordlist_batch[q])
-                        
+
                         start = batch_predict_ids[q]
                         end = batch_predict_end_ids[q]
                         if end < start:
