@@ -102,6 +102,7 @@ def evaluate_lenet5(learning_rate=0.01, n_epochs=3, batch_size=100, emb_size=300
     questions = T.imatrix('questions')
     span_indices= T.ivector() #batch
     word_indices = T.imatrix() #(batch, 2)
+    ans_indices = T.ivector() # for one batch, the length is dynamic
     para_mask=T.fmatrix('para_mask')
     q_mask=T.fmatrix('q_mask')
 
@@ -227,11 +228,6 @@ def evaluate_lenet5(learning_rate=0.01, n_epochs=3, batch_size=100, emb_size=300
     end_repeat_nega = T.extra_ops.repeat(end_prob_batch_nega.dimshuffle('x',0), end_prob_batch_posi.shape[0], axis=0).flatten()
     end_loss_rank = T.mean(T.maximum(0.0, margin-end_repeat_posi+end_repeat_nega))
 
-
-
-
-
-
     word_loss = start_loss_neg_likelihood +end_loss_neg_likelihood+start_loss_rank+end_loss_rank
 
     #test
@@ -241,26 +237,59 @@ def evaluate_lenet5(learning_rate=0.01, n_epochs=3, batch_size=100, emb_size=300
     end_test_scores_matrix = add_HLs_2_tensor3(test_word_input4score, end_norm_HL_1_para,end_norm_HL_2_para,end_norm_HL_3_para,end_norm_HL_4_para,end_norm_U_a, true_batch_size,true_p_len) #(batch, test_p_len)
     end_mask_test_return=end_test_scores_matrix*para_mask  #(batch, p_len)
 
-    #combine start and end as span boundary score
-#     p2loop_matrix = conv_output_p_tensor3.reshape((conv_output_p_tensor3.shape[0]*conv_output_p_tensor3.shape[1], conv_output_p_tensor3.shape[2]))#(batch* hidden_size, maxsenlen)
     word_gram_1 = mask_test_start_return+end_mask_test_return
     word_gram_2 = mask_test_start_return[:,:-1]+end_mask_test_return[:,1:] #(batch* hidden_size, maxsenlen-1)
     word_gram_3 = mask_test_start_return[:,:-2]+end_mask_test_return[:,2:] #(batch* hidden_size, maxsenlen-2)
     word_gram_4 = mask_test_start_return[:,:-3]+end_mask_test_return[:,3:] #(batch* hidden_size, maxsenlen-3)
     word_gram_5 = mask_test_start_return[:,:-4]+end_mask_test_return[:,4:] #(batch* hidden_size, maxsenlen-4)
-#     gram_size = 5*p_len_limit-(0+1+2+3+4)
     word_pair_scores=T.concatenate([word_gram_1, word_gram_2,word_gram_3,word_gram_4,word_gram_5], axis=1)#(batch_size, gram_size)
     
+
+    #ans words train
+    ans_HL_1_para = create_ensemble_para(rng, hidden_size, 2*hidden_size)
+    ans_HL_2_para = create_ensemble_para(rng, hidden_size, hidden_size)
+    ans_HL_3_para = create_ensemble_para(rng, hidden_size, hidden_size)
+    ans_HL_4_para = create_ensemble_para(rng, hidden_size, hidden_size)
+    ans_U_a = create_ensemble_para(rng, 1, hidden_size)
+    norm_ans_U_a=normalize_matrix(ans_U_a)
+    norm_ans_HL_1_para=normalize_matrix(ans_HL_1_para)
+    norm_ans_HL_2_para=normalize_matrix(ans_HL_2_para)
+    norm_ans_HL_3_para=normalize_matrix(ans_HL_3_para)
+    norm_ans_HL_4_para=normalize_matrix(ans_HL_4_para)
+
+    ans_scores_matrix = add_HLs_2_tensor3(word_input4score, norm_ans_HL_1_para,norm_ans_HL_2_para,norm_ans_HL_3_para,norm_ans_HL_4_para, norm_ans_U_a, batch_size,true_p_len)
+    ans_scores_vec=T.nnet.softmax(ans_scores_matrix).flatten() #(batch, para_len)
+    ans_loss_neg_likelihood=-T.mean(T.log(ans_scores_vec[ans_indices]))
     
-    test_span_word_scores_matrix=test_span_scores_matrix+word_pair_scores
+    ans_index_vec = T.zeros((batch_size, p_len_limit), dtype=theano.config.floatX).flatten()
+    ans_new_index = T.set_subtensor(ans_index_vec[ans_indices], 1.0)
+    ans_prob_batch_posi = ans_scores_vec[ans_new_index.nonzero()]
+    ans_prob_batch_nega = ans_scores_vec[(1.0-ans_new_index).nonzero()]
+    ans_repeat_posi = T.extra_ops.repeat(ans_prob_batch_posi, ans_prob_batch_nega.shape[0], axis=0)
+    ans_repeat_nega = T.extra_ops.repeat(ans_prob_batch_nega.dimshuffle('x',0), ans_prob_batch_posi.shape[0], axis=0).flatten()
+    ans_loss_rank = T.mean(T.maximum(0.0, margin-ans_repeat_posi+ans_repeat_nega))    
+    
+    ans_loss = ans_loss_neg_likelihood+ans_loss_rank
+    #ans words test    
+    test_ans_scores_matrix = add_HLs_2_tensor3(test_word_input4score, norm_ans_HL_1_para,norm_ans_HL_2_para,norm_ans_HL_3_para,norm_ans_HL_4_para, norm_ans_U_a, true_batch_size,true_p_len)
+    test_ans_scores_matrix=T.nnet.softmax(test_ans_scores_matrix) #(batch, para_len)    
+    ans_gram_1 = test_ans_scores_matrix
+    ans_gram_2 = test_ans_scores_matrix[:,:-1]+test_ans_scores_matrix[:,1:] #(batch* hidden_size, maxsenlen-1)
+    ans_gram_3 = test_ans_scores_matrix[:,:-2]+test_ans_scores_matrix[:,1:-1]+test_ans_scores_matrix[:,2:] #(batch* hidden_size, maxsenlen-2)
+    ans_gram_4 = test_ans_scores_matrix[:,:-3]+test_ans_scores_matrix[:,1:-2]+test_ans_scores_matrix[:,2:-1]+test_ans_scores_matrix[:,3:] #(batch* hidden_size, maxsenlen-3)
+    ans_gram_5 = test_ans_scores_matrix[:,:-4]+test_ans_scores_matrix[:,1:-3]+test_ans_scores_matrix[:,2:-2]+test_ans_scores_matrix[:,3:-1]+test_ans_scores_matrix[:,4:] #(batch* hidden_size, maxsenlen-4)
+    ans_word_scores=T.concatenate([ans_gram_1, ans_gram_2,ans_gram_3,ans_gram_4,ans_gram_5], axis=1)#(batch, hidden_size, maxsenlen-(0+1+2+3+4))    
+    
+    
+    test_span_word_scores_matrix=test_span_scores_matrix+word_pair_scores+ans_word_scores
     test_return=T.argmax(test_span_word_scores_matrix, axis=1) #batch
 
 #     params = [embeddings,char_embeddings]+NN_para+[U_a]
-    params = [embeddings,char_embeddings]+NN_para+[U_a]+[start_U_a, HL_1_para,HL_2_para,HL_3_para,HL_4_para]+[end_U_a,end_HL_1_para,end_HL_2_para,end_HL_3_para,end_HL_4_para]
+    params = [embeddings,char_embeddings]+NN_para+[U_a]+[start_U_a, HL_1_para,HL_2_para,HL_3_para,HL_4_para]+[end_U_a,end_HL_1_para,end_HL_2_para,end_HL_3_para,end_HL_4_para]+[ans_U_a,ans_HL_1_para,ans_HL_2_para,ans_HL_3_para,ans_HL_4_para]
 
 #     L2_reg =L2norm_paraList([embeddings,U1, W1, U1_b, W1_b,UQ, WQ , UQ_b, WQ_b, W_a1, W_a2, U_a])
     #L2_reg = L2norm_paraList(params)
-    cost=span_loss+word_loss#+ConvGRU_1.error#
+    cost=span_loss+word_loss+ans_loss#+ConvGRU_1.error#
 
 
     accumulator=[]
@@ -280,7 +309,7 @@ def evaluate_lenet5(learning_rate=0.01, n_epochs=3, batch_size=100, emb_size=300
 
 #     updates=Adam(cost, params, lr=0.0001)
 
-    train_model = theano.function([paragraph, questions,span_indices, word_indices,para_mask, q_mask,    char_paragraph, #(batch, char_len*p_len)
+    train_model = theano.function([paragraph, questions,span_indices, word_indices,ans_indices, para_mask, q_mask,    char_paragraph, #(batch, char_len*p_len)
         char_questions, char_para_mask, char_q_mask, true_p_len], cost, updates=updates,on_unused_input='ignore')
 
     test_model = theano.function([paragraph, questions,para_mask, q_mask,
@@ -337,11 +366,20 @@ def evaluate_lenet5(learning_rate=0.01, n_epochs=3, batch_size=100, emb_size=300
             iter = (epoch - 1) * n_train_batches + iter_accu +1
             iter_accu+=1
             train_id_batch = train_ids[para_id:para_id+batch_size]
+            boundary_labels_batch = train_word_label_list[train_id_batch]
+            ans_label_list = []
+            for i in range(batch_size):
+                start = boundary_labels_batch[i][0]+i*p_len_limit
+                end = boundary_labels_batch[i][1]+i*p_len_limit
+                ans_label_list+=range(start, end+1)
+            ans_label_list = numpy.asarray(ans_label_list, dtype='int32')
+            
             cost_i+= train_model(
                                  train_para_list[train_id_batch],
                                  train_Q_list[train_id_batch],
                                  train_span_label_list[train_id_batch],
-                                 train_word_label_list[train_id_batch],
+                                 boundary_labels_batch,
+                                 ans_label_list,
                                  train_para_mask[train_id_batch],
                                  train_Q_mask[train_id_batch],
                                  train_para_char_list[train_id_batch],
