@@ -1671,7 +1671,10 @@ def normalize_matrix(M):
     norm=T.sqrt(T.sum(T.sqr(M)))
     return M/norm
 def L2norm_paraList(params):
-    return T.sum([T.sum(x ** 2) for x in params])
+    sum=0.0
+    for x in params:
+        sum+=(x**2).sum()
+    return sum
 
 # def L2norm_paraList(paralist):
 #     summ=0.0

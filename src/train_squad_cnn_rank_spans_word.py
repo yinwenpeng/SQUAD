@@ -39,7 +39,7 @@ import json
 
 def evaluate_lenet5(learning_rate=0.01, n_epochs=3, batch_size=100, emb_size=300, char_emb_size=20, hidden_size=300,
                     L2_weight=0.0001, p_len_limit=400, test_p_len_limit=100, q_len_limit=20, char_len=15, filter_size = [5,5],
-                    char_filter_size=5, margin=0.85, max_EM=50.302743615):
+                    char_filter_size=5, margin=0.85):
     test_batch_size=batch_size*10
     model_options = locals().copy()
     print "model options", model_options
@@ -119,7 +119,7 @@ def evaluate_lenet5(learning_rate=0.01, n_epochs=3, batch_size=100, emb_size=300
     # BUILD ACTUAL MODEL #
     ######################
     print '... building the model'
-    
+
     true_batch_size = paragraph.shape[0]
 
     common_input_p=embeddings[paragraph.flatten()].reshape((true_batch_size,true_p_len, emb_size)) #the input format can be adapted into CNN or GRU or LSTM
@@ -135,23 +135,23 @@ def evaluate_lenet5(learning_rate=0.01, n_epochs=3, batch_size=100, emb_size=300
     conv_W_char, conv_b_char=create_conv_para(rng, filter_shape=(char_emb_size, 1, char_emb_size, char_filter_size))
     conv_W_1, conv_b_1=create_conv_para(rng, filter_shape=(hidden_size, 1, emb_size+char_emb_size, filter_size[0]))
     conv_W_2, conv_b_2=create_conv_para(rng, filter_shape=(hidden_size, 1, hidden_size, filter_size[1]))
-    
+
     conv_W_1_q, conv_b_1_q=create_conv_para(rng, filter_shape=(hidden_size, 1, emb_size+char_emb_size, filter_size[0]))
     conv_W_2_q, conv_b_2_q=create_conv_para(rng, filter_shape=(hidden_size, 1, hidden_size, filter_size[1]))
     NN_para=[conv_W_1, conv_b_1,conv_W_2, conv_b_2,conv_W_1_q, conv_b_1_q, conv_W_2_q, conv_b_2_q, conv_W_char, conv_b_char]
-    
-    span_input4score, word_input4score = squad_cnn_rank_spans_word(rng, common_input_p, common_input_q, char_common_input_p, char_common_input_q,batch_size, p_len_limit,q_len_limit, 
-                         emb_size, char_emb_size,char_len,filter_size,char_filter_size,hidden_size, 
+
+    span_input4score, word_input4score = squad_cnn_rank_spans_word(rng, common_input_p, common_input_q, char_common_input_p, char_common_input_q,batch_size, p_len_limit,q_len_limit,
+                         emb_size, char_emb_size,char_len,filter_size,char_filter_size,hidden_size,
                          conv_W_1, conv_b_1,conv_W_2, conv_b_2,conv_W_1_q, conv_b_1_q, conv_W_2_q, conv_b_2_q,conv_W_char,conv_b_char,
                          para_mask, q_mask, char_p_masks,char_q_masks)
 
-    test_span_input4score, test_word_input4score = squad_cnn_rank_spans_word(rng, common_input_p, common_input_q, char_common_input_p, char_common_input_q,test_batch_size, test_p_len_limit,q_len_limit, 
-                         emb_size, char_emb_size,char_len,filter_size,char_filter_size,hidden_size, 
+    test_span_input4score, test_word_input4score = squad_cnn_rank_spans_word(rng, common_input_p, common_input_q, char_common_input_p, char_common_input_q,test_batch_size, test_p_len_limit,q_len_limit,
+                         emb_size, char_emb_size,char_len,filter_size,char_filter_size,hidden_size,
                          conv_W_1, conv_b_1,conv_W_2, conv_b_2, conv_W_1_q, conv_b_1_q, conv_W_2_q, conv_b_2_q,conv_W_char,conv_b_char,
                          para_mask, q_mask, char_p_masks,char_q_masks)  #(batch, hidden, gram_size)
-    
+
     gram_size = 5*true_p_len-(0+1+2+3+4)
-    
+
     U_a = create_ensemble_para(rng, 1, 2*hidden_size)
     norm_U_a=normalize_matrix(U_a)
     span_scores_matrix=T.dot(span_input4score.dimshuffle(0,2,1), norm_U_a).reshape((batch_size, gram_size))  #(batch, 13*para_len-78, 1)
@@ -173,7 +173,7 @@ def evaluate_lenet5(learning_rate=0.01, n_epochs=3, batch_size=100, emb_size=300
     loss_rank = T.mean(T.maximum(0.0, margin-repeat_posi+repeat_nega))
 
     span_loss = loss_neg_likelihood + loss_rank
-    
+
     test_span_scores_matrix=T.dot(test_span_input4score.dimshuffle(0,2,1), norm_U_a).reshape((true_batch_size, gram_size))  #(batch, 13*para_len-78)
 
 
@@ -243,7 +243,7 @@ def evaluate_lenet5(learning_rate=0.01, n_epochs=3, batch_size=100, emb_size=300
     word_gram_4 = mask_test_start_return[:,:-3]+end_mask_test_return[:,3:] #(batch* hidden_size, maxsenlen-3)
     word_gram_5 = mask_test_start_return[:,:-4]+end_mask_test_return[:,4:] #(batch* hidden_size, maxsenlen-4)
     word_pair_scores=T.concatenate([word_gram_1, word_gram_2,word_gram_3,word_gram_4,word_gram_5], axis=1)#(batch_size, gram_size)
-    
+
 
     #ans words train
     ans_HL_1_para = create_ensemble_para(rng, hidden_size, 2*hidden_size)
@@ -260,36 +260,42 @@ def evaluate_lenet5(learning_rate=0.01, n_epochs=3, batch_size=100, emb_size=300
     ans_scores_matrix = add_HLs_2_tensor3(word_input4score, norm_ans_HL_1_para,norm_ans_HL_2_para,norm_ans_HL_3_para,norm_ans_HL_4_para, norm_ans_U_a, batch_size,true_p_len)
     ans_scores_vec=T.nnet.softmax(ans_scores_matrix).flatten() #(batch, para_len)
     ans_loss_neg_likelihood=-T.mean(T.log(ans_scores_vec[ans_indices]))
-    
+
     ans_index_vec = T.zeros((batch_size, p_len_limit), dtype=theano.config.floatX).flatten()
     ans_new_index = T.set_subtensor(ans_index_vec[ans_indices], 1.0)
     ans_prob_batch_posi = ans_scores_vec[ans_new_index.nonzero()]
     ans_prob_batch_nega = ans_scores_vec[(1.0-ans_new_index).nonzero()]
     ans_repeat_posi = T.extra_ops.repeat(ans_prob_batch_posi, ans_prob_batch_nega.shape[0], axis=0)
     ans_repeat_nega = T.extra_ops.repeat(ans_prob_batch_nega.dimshuffle('x',0), ans_prob_batch_posi.shape[0], axis=0).flatten()
-    ans_loss_rank = T.mean(T.maximum(0.0, margin-ans_repeat_posi+ans_repeat_nega))    
-    
+    ans_loss_rank = T.mean(T.maximum(0.0, margin-ans_repeat_posi+ans_repeat_nega))
+
     ans_loss = ans_loss_neg_likelihood+ans_loss_rank
-    #ans words test    
+    #ans words test
     test_ans_scores_matrix = add_HLs_2_tensor3(test_word_input4score, norm_ans_HL_1_para,norm_ans_HL_2_para,norm_ans_HL_3_para,norm_ans_HL_4_para, norm_ans_U_a, true_batch_size,true_p_len)
-    test_ans_scores_matrix=T.nnet.softmax(test_ans_scores_matrix) #(batch, para_len)    
+    test_ans_scores_matrix=test_ans_scores_matrix*para_mask#T.nnet.softmax(test_ans_scores_matrix) #(batch, para_len)
     ans_gram_1 = test_ans_scores_matrix
-    ans_gram_2 = test_ans_scores_matrix[:,:-1]+test_ans_scores_matrix[:,1:] #(batch* hidden_size, maxsenlen-1)
-    ans_gram_3 = test_ans_scores_matrix[:,:-2]+test_ans_scores_matrix[:,1:-1]+test_ans_scores_matrix[:,2:] #(batch* hidden_size, maxsenlen-2)
-    ans_gram_4 = test_ans_scores_matrix[:,:-3]+test_ans_scores_matrix[:,1:-2]+test_ans_scores_matrix[:,2:-1]+test_ans_scores_matrix[:,3:] #(batch* hidden_size, maxsenlen-3)
-    ans_gram_5 = test_ans_scores_matrix[:,:-4]+test_ans_scores_matrix[:,1:-3]+test_ans_scores_matrix[:,2:-2]+test_ans_scores_matrix[:,3:-1]+test_ans_scores_matrix[:,4:] #(batch* hidden_size, maxsenlen-4)
-    ans_word_scores=T.concatenate([ans_gram_1, ans_gram_2,ans_gram_3,ans_gram_4,ans_gram_5], axis=1)#(batch, hidden_size, maxsenlen-(0+1+2+3+4))    
-    
-    
+    ans_gram_2 = (test_ans_scores_matrix[:,:-1]+test_ans_scores_matrix[:,1:])/2.0 #(batch* hidden_size, maxsenlen-1)
+    ans_gram_3 = (test_ans_scores_matrix[:,:-2]+test_ans_scores_matrix[:,1:-1]+test_ans_scores_matrix[:,2:])/3.0 #(batch* hidden_size, maxsenlen-2)
+    ans_gram_4 = (test_ans_scores_matrix[:,:-3]+test_ans_scores_matrix[:,1:-2]+test_ans_scores_matrix[:,2:-1]+test_ans_scores_matrix[:,3:])/4.0 #(batch* hidden_size, maxsenlen-3)
+    ans_gram_5 = (test_ans_scores_matrix[:,:-4]+test_ans_scores_matrix[:,1:-3]+test_ans_scores_matrix[:,2:-2]+test_ans_scores_matrix[:,3:-1]+test_ans_scores_matrix[:,4:])/5.0 #(batch* hidden_size, maxsenlen-4)
+    ans_word_scores=T.concatenate([ans_gram_1, ans_gram_2,ans_gram_3,ans_gram_4,ans_gram_5], axis=1)#(batch, hidden_size, maxsenlen-(0+1+2+3+4))
+
+
     test_span_word_scores_matrix=test_span_scores_matrix+word_pair_scores+ans_word_scores
     test_return=T.argmax(test_span_word_scores_matrix, axis=1) #batch
 
 #     params = [embeddings,char_embeddings]+NN_para+[U_a]
     params = [embeddings,char_embeddings]+NN_para+[U_a]+[start_U_a, HL_1_para,HL_2_para,HL_3_para,HL_4_para]+[end_U_a,end_HL_1_para,end_HL_2_para,end_HL_3_para,end_HL_4_para]+[ans_U_a,ans_HL_1_para,ans_HL_2_para,ans_HL_3_para,ans_HL_4_para]
 
-#     L2_reg =L2norm_paraList([embeddings,U1, W1, U1_b, W1_b,UQ, WQ , UQ_b, WQ_b, W_a1, W_a2, U_a])
+    L2_reg =L2norm_paraList([embeddings,char_embeddings,
+    conv_W_1,conv_W_2,conv_W_1_q, conv_W_2_q, conv_W_char,
+    U_a,
+    start_U_a, HL_1_para,HL_2_para,HL_3_para,HL_4_para,
+    end_U_a,end_HL_1_para,end_HL_2_para,end_HL_3_para,end_HL_4_para,
+    ans_U_a,ans_HL_1_para,ans_HL_2_para,ans_HL_3_para,ans_HL_4_para
+    ])
     #L2_reg = L2norm_paraList(params)
-    cost=span_loss+word_loss+ans_loss#+ConvGRU_1.error#
+    cost=span_loss+word_loss+ans_loss+L2_weight*L2_reg
 
 
     accumulator=[]
@@ -373,7 +379,7 @@ def evaluate_lenet5(learning_rate=0.01, n_epochs=3, batch_size=100, emb_size=300
                 end = boundary_labels_batch[i][1]+i*p_len_limit
                 ans_label_list+=range(start, end+1)
             ans_label_list = numpy.asarray(ans_label_list, dtype='int32')
-            
+
             cost_i+= train_model(
                                  train_para_list[train_id_batch],
                                  train_Q_list[train_id_batch],
@@ -449,8 +455,42 @@ def evaluate_lenet5(learning_rate=0.01, n_epochs=3, batch_size=100, emb_size=300
     print >> sys.stderr, ('The code for file ' +
                           os.path.split(__file__)[1] +
                           ' ran for %.2fm' % ((end_time - start_time) / 60.))
-
+    return max_exact_acc
 
 
 if __name__ == '__main__':
+    '''
+learning_rate=0.01, n_epochs=3, batch_size=100, emb_size=300, char_emb_size=20, hidden_size=300,
+                    L2_weight=0.0001, p_len_limit=400, test_p_len_limit=100, q_len_limit=20, char_len=15, filter_size = [5,5],
+                    char_filter_size=5, margin=0.85
+    '''
     evaluate_lenet5()
+#     lr_list=[0.01,0.005,0.001,0.02,0.03,0.05]
+#     hidden_list=[300,250,200,150,350,400]
+#     batch_list=[100,80,60,40,120,150]
+# 
+#     best_acc=0.0
+#     best_lr=0.01
+#     for lr in lr_list:
+#         acc_test= evaluate_lenet5(learning_rate=lr)
+#         if acc_test>best_acc:
+#             best_lr=lr
+#             best_acc=acc_test
+#         print '\t\t\t\tcurrent best_acc:', best_acc
+# 
+#     best_hidden=300
+#     for hidden in hidden_list:
+#         acc_test= evaluate_lenet5(learning_rate=best_lr, hidden_size=hidden)
+#         if acc_test>best_acc:
+#             best_hidden=hidden
+#             best_acc=acc_test
+#         print '\t\t\t\tcurrent best_acc:', best_acc
+# 
+#     best_batch=100
+#     for batch in batch_list:
+#         acc_test= evaluate_lenet5(learning_rate=best_lr,  hidden_size=best_hidden,   batch_size=batch)
+#         if acc_test>best_acc:
+#             best_batch=batch
+#             best_acc=acc_test
+#         print '\t\t\t\tcurrent best_acc:', best_acc
+#     print 'Hyper tune finished, best test acc: ', best_acc, ' by  lr: ', best_lr, ' hidden: ', best_hidden, ' batch: ', best_batch
