@@ -2234,12 +2234,21 @@ def squad_cnn_rank_spans_word(rng, common_input_p, common_input_q, char_common_i
     gram_3 = T.max(T.concatenate([p2loop_matrix[:,:-2].dimshuffle('x',0,1), p2loop_matrix[:,1:-1].dimshuffle('x',0,1),p2loop_matrix[:,2:].dimshuffle('x',0,1)], axis=0), axis=0) #(batch* hidden_size, maxsenlen-2)
     gram_4 = T.max(T.concatenate([p2loop_matrix[:,:-3].dimshuffle('x',0,1), p2loop_matrix[:,1:-2].dimshuffle('x',0,1),p2loop_matrix[:,2:-1].dimshuffle('x',0,1),p2loop_matrix[:,3:].dimshuffle('x',0,1)], axis=0), axis=0) #(batch* hidden_size, maxsenlen-3)
     gram_5 = T.max(T.concatenate([p2loop_matrix[:,:-4].dimshuffle('x',0,1), p2loop_matrix[:,1:-3].dimshuffle('x',0,1),p2loop_matrix[:,2:-2].dimshuffle('x',0,1),p2loop_matrix[:,3:-1].dimshuffle('x',0,1),p2loop_matrix[:,4:].dimshuffle('x',0,1)], axis=0), axis=0) #(batch* hidden_size, maxsenlen-4)
-    gram_size = 5*p_len_limit-(0+1+2+3+4)
-    span_reps=T.concatenate([gram_1, gram_2,gram_3,gram_4,gram_5], axis=1).reshape((batch_size, hidden_size, gram_size)) #(batch, hidden_size, maxsenlen-(0+1+2+3+4))
-    span_input4score = T.concatenate([span_reps, T.repeat(q_rep.dimshuffle(0,1,'x'), gram_size, axis=2)], axis=1) #(batch, 2*hidden, 5*p_len_limit-(0+1+2+3+4))
+    gram_6 = T.max(T.concatenate([p2loop_matrix[:,:-5].dimshuffle('x',0,1), p2loop_matrix[:,1:-4].dimshuffle('x',0,1),p2loop_matrix[:,2:-3].dimshuffle('x',0,1),p2loop_matrix[:,3:-2].dimshuffle('x',0,1),p2loop_matrix[:,4:-1].dimshuffle('x',0,1),p2loop_matrix[:,5:].dimshuffle('x',0,1)], axis=0), axis=0) #(batch* hidden_size, maxsenlen-4)
+    gram_7 = T.max(T.concatenate([p2loop_matrix[:,:-6].dimshuffle('x',0,1), p2loop_matrix[:,1:-5].dimshuffle('x',0,1),p2loop_matrix[:,2:-4].dimshuffle('x',0,1),p2loop_matrix[:,3:-3].dimshuffle('x',0,1),p2loop_matrix[:,4:-2].dimshuffle('x',0,1),p2loop_matrix[:,5:-1].dimshuffle('x',0,1),p2loop_matrix[:,6:].dimshuffle('x',0,1)], axis=0), axis=0) #(batch* hidden_size, maxsenlen-4)
+             
+    
+    train_gram_size = 7*p_len_limit-(0+1+2+3+4+5+6)
+    train_span_reps=T.concatenate([gram_1, gram_2,gram_3,gram_4,gram_5,gram_6,gram_7], axis=1).reshape((batch_size, hidden_size, train_gram_size)) #(batch, hidden_size, maxsenlen-(0+1+2+3+4))
+    train_span_input4score = T.concatenate([train_span_reps, T.repeat(q_rep.dimshuffle(0,1,'x'), train_gram_size, axis=2)], axis=1) #(batch, 2*hidden, 5*p_len_limit-(0+1+2+3+4))
+
+    test_gram_size = 5*p_len_limit-(0+1+2+3+4)
+    test_span_reps=T.concatenate([gram_1, gram_2,gram_3,gram_4,gram_5], axis=1).reshape((batch_size, hidden_size, test_gram_size)) #(batch, hidden_size, maxsenlen-(0+1+2+3+4))
+    test_span_input4score = T.concatenate([test_span_reps, T.repeat(q_rep.dimshuffle(0,1,'x'), test_gram_size, axis=2)], axis=1) #(batch, 2*hidden, 5*p_len_limit-(0+1+2+3+4))
+
 
     word_input4score = T.concatenate([conv_output_p_tensor3, T.repeat(q_rep.dimshuffle(0,1,'x'), p_len_limit, axis=2)], axis=1)*para_mask.dimshuffle(0,'x',1) #(batch, 2*hidden, p_len_limit)
-    return span_input4score, word_input4score
+    return train_span_input4score, test_span_input4score, word_input4score
 
 def add_HLs_2_tensor3(input4score, HL_1_para,HL_2_para,HL_3_para,HL_4_para,norm_U_a, batch_size,true_p_len):
 
